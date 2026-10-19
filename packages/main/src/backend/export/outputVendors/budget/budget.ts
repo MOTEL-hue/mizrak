@@ -17,6 +17,15 @@ export function importUrl(siteUrl: string) {
   return `${base}/budget/api/import`;
 }
 
+// הסיווגים שנלמדו בתקציב: תיאור התנועה ← סעיף. תנועה בלי סיווג מקבלת את הסיווג שתוקן ידנית בתקציב.
+export function applyRules(transactions: EnrichedTransaction[], rules: Record<string, string>) {
+  return transactions.map((t) => {
+    if (t.category) return t;
+    const key = [t.description, t.memo].filter(Boolean).join(' - ');
+    return rules[key] ? { ...t, category: rules[key] } : t;
+  });
+}
+
 export function toChunks(transactions: EnrichedTransaction[], size = CHUNK_SIZE) {
   const chunks: EnrichedTransaction[][] = [];
   for (let i = 0; i < transactions.length; i += size) {
@@ -31,11 +40,19 @@ const exportTransactions: ExportTransactionsFunction = async ({ transactionsToCr
     throw new Error('חסר מפתח גישה לתקציב');
   }
   const url = importUrl(siteUrl);
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+  let rules: Record<string, string> = {};
+  try {
+    const rulesResponse = await fetch(url.replace(/import$/, 'categories'), { headers });
+    if (rulesResponse.ok) rules = ((await rulesResponse.json()) as { rules?: Record<string, string> }).rules ?? {};
+  } catch {
+    // בלי סיווגים עדיין אפשר לשלוח את התנועות
+  }
   let added = 0;
-  for (const chunk of toChunks(transactionsToCreate)) {
+  for (const chunk of toChunks(applyRules(transactionsToCreate, rules))) {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers,
       body: JSON.stringify({ transactions: chunk }),
     });
     if (!response.ok) {
