@@ -77,10 +77,33 @@ function modernDecrypt(text: string, salt: string): string {
   return decipher.update(ciphertext, 'hex', 'utf8') + decipher.final('utf8');
 }
 
+/**
+ * הצפנה עם אימות (AES-256-GCM): אם הקובץ שונה או פגום, הפענוח נכשל.
+ * Format: v3:<iv_hex>:<tag_hex>:<ciphertext_hex>
+ */
+export function gcmEncrypt(text: string, salt: string): string {
+  const iv = crypto.randomBytes(12);
+  const key = crypto.scryptSync(salt, 'mizrak', KEY_LENGTH);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const crypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+  return `v3:${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${crypted.toString('hex')}`;
+}
+
+export function gcmDecrypt(text: string, salt: string): string {
+  const [version, iv, tag, ciphertext] = text.split(':');
+  if (version !== 'v3' || !iv || !tag || ciphertext === undefined) {
+    throw new Error('Invalid v3 encrypted format');
+  }
+  const key = crypto.scryptSync(salt, 'mizrak', KEY_LENGTH);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'hex'));
+  decipher.setAuthTag(Buffer.from(tag, 'hex'));
+  return Buffer.concat([decipher.update(Buffer.from(ciphertext, 'hex')), decipher.final()]).toString('utf8');
+}
+
 export async function encrypt(text: string) {
   const salt = await SALT(randomHex());
-  // Always use modern encryption for new data
-  return modernEncrypt(text, salt);
+  // נתונים חדשים תמיד נשמרים בהצפנה עם אימות
+  return gcmEncrypt(text, salt);
 }
 
 export async function decrypt(text: string) {
@@ -91,6 +114,10 @@ export async function decrypt(text: string) {
     }
 
     const salt = await SALT();
+
+    if (text.startsWith('v3:')) {
+      return gcmDecrypt(text, salt);
+    }
 
     // Try modern format first (starts with "v2:")
     if (text.startsWith('v2:')) {
