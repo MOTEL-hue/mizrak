@@ -1,0 +1,52 @@
+name: Watch upstream
+
+# בודק כל יום אם יצאה גרסה חדשה בכספיון המקורי, או אם התיקון לישראכרט מוזג בספרייה.
+# כשיש חידוש נפתחת בעיה (Issue) במאגר, ו-GitHub שולח לך על כך הודעה במייל.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * *'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check upstream
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const open = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'all', per_page: 100 });
+            const known = new Set(open.map(i => i.title));
+            const report = async (title, body) => {
+              if (known.has(title)) return;
+              await github.rest.issues.create({ owner, repo, title, body });
+            };
+
+            // 1. גרסה חדשה של כספיון המקורי
+            const rel = await github.rest.repos.getLatestRelease({ owner: 'brafdlog', repo: 'caspion' });
+            await report(
+              `כספיון המקורי עודכן: ${rel.data.tag_name}`,
+              `יצאה גרסה חדשה של כספיון: ${rel.data.html_url}\n\nכדאי לקרוא מה השתנה ולבדוק אם זה טוב גם למזרק.\n\n${(rel.data.body || '').slice(0, 3000)}`
+            );
+
+            // 2. תיקון ישראכרט בספרייה (#1159)
+            const pr = await github.rest.pulls.get({ owner: 'eshaham', repo: 'israeli-bank-scrapers', pull_number: 1159 });
+            if (pr.data.merged) {
+              await report(
+                'התיקון לישראכרט (#1159) מוזג בספרייה',
+                'אפשר לעדכן את israeli-bank-scrapers-core לגרסה החדשה, ולבדוק את ישראכרט ואמריקן אקספרס.'
+              );
+            }
+
+            // 3. גרסה חדשה של הספרייה
+            const resp = await fetch('https://registry.npmjs.org/israeli-bank-scrapers-core/latest');
+            const latest = (await resp.json()).version;
+            await report(
+              `גרסה חדשה של ספריית הבנקים: ${latest}`,
+              `יצאה גרסה ${latest} של israeli-bank-scrapers-core. כדאי לעדכן ולבדוק.`
+            );
