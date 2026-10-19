@@ -21,6 +21,16 @@ export async function getYnabAccountData(ynabOptions: YnabConfig['options']): Pr
   return electron.ipcRenderer.invoke('getYnabAccountData', ynabOptions);
 }
 
+let updateProgressCallback: ((percent: number) => void) | undefined;
+
+export function onUpdateProgress(callback: (percent: number) => void) {
+  const firstTime = !updateProgressCallback;
+  updateProgressCallback = callback;
+  if (firstTime) {
+    electron.ipcRenderer.on('updateProgress', (_, percent: number) => updateProgressCallback?.(percent));
+  }
+}
+
 let progressListenerDefined = false;
 
 export async function scrape(handleScrapingEvent: HandleScrapingEvent) {

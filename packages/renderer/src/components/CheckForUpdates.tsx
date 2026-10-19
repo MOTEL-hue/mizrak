@@ -1,13 +1,13 @@
-import { checkForUpdate, downloadUpdate, openExternal, quitAndInstall } from '#preload';
-import { useState } from 'react';
-import { Button, Spinner } from 'react-bootstrap';
-import { useAppInfoStore } from '../store';
+import { checkForUpdate, downloadUpdate, onUpdateProgress, quitAndInstall } from '#preload';
+import { useEffect, useState } from 'react';
+import { Button, ProgressBar, Spinner } from 'react-bootstrap';
 
 const UPDATE_STATES = {
   INIT: 'INIT',
-  LOADING: 'LOADING',
+  CHECKING: 'CHECKING',
   ERROR: 'ERROR',
   NEW_VERSION_AVAILABLE: 'NEW_VERSION_AVAILABLE',
+  DOWNLOADING: 'DOWNLOADING',
   NO_NEW_VERSION: 'NO_NEW_VERSION',
   READY_TO_INSTALL: 'READY_TO_INSTALL',
 };
@@ -19,10 +19,14 @@ interface UpdateInfo {
 function CheckForUpdates() {
   const [updateState, setUpdateState] = useState(UPDATE_STATES.INIT);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo>();
-  const store = useAppInfoStore();
+  const [percent, setPercent] = useState(0);
+
+  useEffect(() => {
+    onUpdateProgress(setPercent);
+  }, []);
 
   const checkForUpdates = async () => {
-    setUpdateState(UPDATE_STATES.LOADING);
+    setUpdateState(UPDATE_STATES.CHECKING);
     try {
       const info = await checkForUpdate();
       setUpdateInfo(info);
@@ -34,7 +38,8 @@ function CheckForUpdates() {
   };
 
   const downloadNewVersion = async () => {
-    setUpdateState(UPDATE_STATES.LOADING);
+    setPercent(0);
+    setUpdateState(UPDATE_STATES.DOWNLOADING);
     try {
       await downloadUpdate();
       setUpdateState(UPDATE_STATES.READY_TO_INSTALL);
@@ -44,41 +49,51 @@ function CheckForUpdates() {
     }
   };
 
-  const openGithubRelease = () => {
-    openExternal(`${store.appInfo?.repository}/releases/tag/v${updateInfo?.version}`);
-  };
-  const openCompare = () => {
-    openExternal(`${store.appInfo?.repository}/compare/v${store.appInfo?.currentVersion}...v${updateInfo?.version}`);
-  };
-
   return (
-    <>
-      {updateState === UPDATE_STATES.LOADING && <Spinner animation="border" role="status" />}
+    <div className="d-flex flex-column align-items-center gap-2 w-100">
       {updateState === UPDATE_STATES.INIT && (
         <Button variant="dark" size="sm" onClick={checkForUpdates}>
           בדיקת עדכונים
         </Button>
       )}
-      {updateState === UPDATE_STATES.NO_NEW_VERSION && <div>אין עדכונים זמינים</div>}
-      {updateState === UPDATE_STATES.NEW_VERSION_AVAILABLE && (
-        <div>
-          <Button variant="dark" size="sm" onClick={downloadNewVersion}>
-            הורדת גירסה {updateInfo?.version}
-          </Button>
-          <Button variant="dark" size="sm" onClick={openGithubRelease}>
-            לפתוח Github
-          </Button>
-          <Button variant="dark" size="sm" onClick={openCompare}>
-            לפתוח השוואה
-          </Button>
+      {updateState === UPDATE_STATES.CHECKING && (
+        <div className="d-flex align-items-center gap-2">
+          <Spinner animation="border" size="sm" role="status" />
+          <span>בודק אם יש גרסה חדשה...</span>
         </div>
       )}
-      {updateState === UPDATE_STATES.READY_TO_INSTALL && (
-        <Button variant="dark" size="sm" onClick={quitAndInstall}>
-          יציאה והתקנה
-        </Button>
+      {updateState === UPDATE_STATES.NO_NEW_VERSION && <div>התוכנה מעודכנת, אין גרסה חדשה.</div>}
+      {updateState === UPDATE_STATES.NEW_VERSION_AVAILABLE && (
+        <>
+          <div>נמצאה גרסה חדשה: {updateInfo?.version}</div>
+          <Button variant="dark" size="sm" onClick={downloadNewVersion}>
+            הורדת הגרסה החדשה
+          </Button>
+        </>
       )}
-    </>
+      {updateState === UPDATE_STATES.DOWNLOADING && (
+        <>
+          <div>מוריד את הגרסה החדשה... אל תסגור את התוכנה.</div>
+          <ProgressBar now={percent} label={`${percent}%`} className="w-50" />
+        </>
+      )}
+      {updateState === UPDATE_STATES.READY_TO_INSTALL && (
+        <>
+          <div>ההורדה הסתיימה. לחץ כדי להתקין, והתוכנה תיפתח מחדש.</div>
+          <Button variant="dark" size="sm" onClick={quitAndInstall}>
+            יציאה והתקנה
+          </Button>
+        </>
+      )}
+      {updateState === UPDATE_STATES.ERROR && (
+        <>
+          <div>בדיקת העדכון נכשלה. בדוק את החיבור לאינטרנט ונסה שוב.</div>
+          <Button variant="dark" size="sm" onClick={checkForUpdates}>
+            ניסיון נוסף
+          </Button>
+        </>
+      )}
+    </div>
   );
 }
 

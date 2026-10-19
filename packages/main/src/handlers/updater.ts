@@ -1,3 +1,4 @@
+import { BrowserWindow } from 'electron';
 import electronUpdater from 'electron-updater';
 import logger from '../logging/logger';
 
@@ -9,6 +10,11 @@ export interface UpdateInfo {
 
 autoUpdater.logger = logger;
 autoUpdater.autoDownload = false;
+
+// אחוזי ההורדה מוצגים בחלון, כדי שלא יהיה רק סימן מסתובב
+autoUpdater.on('download-progress', (progress) => {
+  BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('updateProgress', Math.round(progress.percent)));
+});
 
 export const checkForUpdate = async () =>
   new Promise<UpdateInfo | false>((resolve, reject) => {
