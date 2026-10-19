@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { setHebrewMenu } from './menu';
 import updater from 'electron-updater';
 import { platform } from 'node:process';
 import { registerHandlers } from './handlers';
@@ -51,6 +52,7 @@ app.on('activate', restoreOrCreateWindow);
 app
   .whenReady()
   .then(async () => {
+    setHebrewMenu();
     logAppEvent('APP_READY', {
       version: app.getVersion(),
       platform,

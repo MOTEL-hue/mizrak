@@ -77,7 +77,7 @@ const EditYnabExporter = ({ handleSave, exporterConfig }: EditYnabExporterProps)
         <Card.Body className={styles.cardBody}>
           <Form className={styles.form}>
             <Form.Group controlId="accessToken" className="mb-3">
-              <Form.Label>מפתח גישה של YNAB</Form.Label>
+              <Form.Label>מפתח גישה של יינאב</Form.Label>
               <Form.Control
                 type="password"
                 value={ynabOptions.accessToken}
@@ -113,7 +113,7 @@ const EditYnabExporter = ({ handleSave, exporterConfig }: EditYnabExporterProps)
               </Form.Group>
             )}
             <Form.Group controlId="exporterActive">
-              <Form.Check type="switch" onChange={() => setActive(!active)} label="Active" checked={active} />
+              <Form.Check type="switch" onChange={() => setActive(!active)} label="פעיל" checked={active} />
             </Form.Group>
           </Form>
           <div className={styles.actionButtonsWrapper}>

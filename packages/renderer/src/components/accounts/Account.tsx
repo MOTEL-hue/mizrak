@@ -45,7 +45,7 @@ export default function Account({ account, actionButtons, onToggleActive, disabl
         <img
           className={styles.logsButton}
           src={icon}
-          alt="action"
+          alt="פעולה"
           onClick={clickHandler}
           key={icon}
           title={tooltipText}

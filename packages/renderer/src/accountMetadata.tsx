@@ -40,9 +40,9 @@ const accountIdToDisplayName: Record<CompanyTypes | OutputVendorName, string> = 
   [CompanyTypes.BEHATSDAA]: 'בהצדעה',
   [CompanyTypes.MERCANTILE]: 'מרכנתיל',
   [OutputVendorName.CSV]: 'אקסל',
-  [OutputVendorName.GOOGLE_SHEETS]: 'Google Sheets',
-  [OutputVendorName.YNAB]: 'Ynab',
-  [OutputVendorName.JSON]: 'Json',
+  [OutputVendorName.GOOGLE_SHEETS]: 'גיליון גוגל',
+  [OutputVendorName.YNAB]: 'יינאב',
+  [OutputVendorName.JSON]: 'קובץ נתונים',
   [OutputVendorName.BUDGET]: 'התקציב שלי',
 };
 

@@ -50,7 +50,7 @@ function GeneralSettings() {
               />
             </Form.Group>
             <Form.Group>
-              <Form.Label>נתיב Chromium</Form.Label>
+              <Form.Label>נתיב הדפדפן של התוכנה</Form.Label>
               <Form.Control
                 className={styles.input}
                 defaultValue={configStore.config?.scraping.chromiumPath}
@@ -58,7 +58,7 @@ function GeneralSettings() {
               />
             </Form.Group>
             <Form.Group>
-              <Form.Label>כמה זמן לחכות לשליפה? (milliseconds)</Form.Label>
+              <Form.Label>כמה זמן לחכות לשליפה? (באלפיות שנייה, 1000 = שנייה)</Form.Label>
               <Form.Control
                 className={styles.input}
                 defaultValue={configStore.config?.scraping.timeout}
