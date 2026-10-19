@@ -1,0 +1,58 @@
+.container {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  width: 260px;
+  padding: 4px 12px;
+  border: 1px solid #ddcfcf;
+  box-sizing: border-box;
+  border-radius: 4px;
+  margin: 5px 0;
+}
+
+.pointer {
+  cursor: pointer;
+}
+
+.activeToggle {
+  margin-left: 5px;
+  display: none;
+  cursor: pointer;
+}
+
+.container:hover .activeToggle {
+  display: block;
+}
+
+.nameWrapper {
+  display: flex;
+  justify-content: flex-start;
+  flex: 1;
+  margin-right: 7px;
+}
+
+.notActive {
+  opacity: 0.5;
+}
+
+.logsButton {
+  margin-left: 5px;
+  height: 18px;
+  width: 18px;
+  display: none;
+  cursor: pointer;
+}
+
+.container:hover .logsButton {
+  display: block;
+}
+
+.settingsButton {
+  margin-left: 5px;
+  height: 18px;
+  width: 18px;
+}
+
+.newTxnsIndicator {
+  margin-right: 8px;
+}

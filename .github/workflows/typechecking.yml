@@ -1,0 +1,29 @@
+name: Typechecking
+on:
+  workflow_dispatch:
+  pull_request:
+
+concurrency:
+  group: typechecking-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: 'bash'
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          cache: 'yarn'
+          node-version-file: '.node-version'
+
+      - run: yarn
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+      - run: yarn typecheck

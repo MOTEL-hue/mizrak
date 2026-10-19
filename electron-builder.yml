@@ -1,0 +1,21 @@
+directories:
+  output: dist
+  buildResources: buildResources
+
+artifactName: '${productName}.${ext}'
+
+files:
+  - packages/**/dist/**
+
+linux:
+  target: deb
+  icon: packages/renderer/src/assets/logos/logoFishOnly.png
+
+publish:
+  - provider: github
+    releaseType: release
+
+mac:
+  icon: packages/renderer/src/assets/logos/fishLogo.icns
+win:
+  icon: packages/renderer/src/assets/logos/fishOnlyLogo.ico
