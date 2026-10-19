@@ -1,4 +1,5 @@
 import { exportDiagnostics } from '#preload';
+import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
 import { Alert, Container, Stack } from 'react-bootstrap';
 import NavBar from 'react-bootstrap/Navbar';
@@ -6,8 +7,10 @@ import logo from '../../assets/logos/logoFishOnly.svg';
 import HelpModal from './HelpModal';
 import NavButton from './NavButton';
 import styles from './TopBar.module.css';
+import { useAppInfoStore } from '../../store';
 
 function TopBar() {
+  const appInfoStore = useAppInfoStore();
   const [showHelp, setShowHelp] = useState(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
@@ -36,7 +39,12 @@ function TopBar() {
                   borderRadius: '50%',
                 }}
               ></div>
-              מזרק
+              <div>
+                מזרק
+                {appInfoStore.appInfo?.currentVersion && (
+                  <div className="mz-version">גרסה {appInfoStore.appInfo.currentVersion}</div>
+                )}
+              </div>
             </Stack>
           </NavBar.Brand>
           <Stack direction="horizontal" gap={5}>
@@ -60,4 +68,4 @@ function TopBar() {
   );
 }
 
-export default TopBar;
+export default observer(TopBar);

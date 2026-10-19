@@ -1,0 +1,112 @@
+/* עיצוב מזרק: ירוק-טורקיז רגוע, כרטיסים מעוגלים, מראה של תוכנת תקציב */
+:root {
+  --mz-primary: #0f766e;
+  --mz-primary-dark: #115e59;
+  --mz-accent: #f59e0b;
+  --mz-bg: #f4faf9;
+  --mz-card: #ffffff;
+  --mz-border: #cfe3e0;
+  --mz-text: #12332f;
+  --bs-primary: #0f766e;
+  --bs-primary-rgb: 15, 118, 110;
+  --bs-link-color: #0f766e;
+  --bs-body-color: #12332f;
+}
+
+body {
+  background: linear-gradient(180deg, #e6f4f1 0%, var(--mz-bg) 220px, #ffffff 100%);
+  color: var(--mz-text);
+  font-family: 'Segoe UI', 'Arial', 'Heebo', sans-serif;
+}
+
+.App {
+  font-family: 'Segoe UI', 'Arial', 'Heebo', sans-serif !important;
+}
+
+/* סרגל עליון */
+.navbar {
+  background: linear-gradient(90deg, var(--mz-primary-dark), var(--mz-primary)) !important;
+  border-bottom: none !important;
+  color: #ffffff;
+}
+.navbar .navbar-brand,
+.navbar .btn {
+  color: #ffffff !important;
+  font-weight: 600;
+}
+.navbar .btn:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* כותרות */
+h1, h2, h3, h4 {
+  color: var(--mz-primary-dark);
+  font-weight: 700;
+}
+
+/* כפתורים */
+.btn-dark,
+.btn-primary {
+  background: var(--mz-primary) !important;
+  border-color: var(--mz-primary) !important;
+  border-radius: 999px;
+  padding-inline: 2rem;
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.25);
+}
+.btn-dark:hover,
+.btn-primary:hover {
+  background: var(--mz-primary-dark) !important;
+}
+.btn-light {
+  border-radius: 999px;
+}
+
+/* חלונות והודעות */
+.modal-content {
+  border: none;
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(15, 118, 110, 0.2);
+}
+.modal-header {
+  background: #e6f4f1;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+}
+.progress {
+  height: 1.4rem;
+  border-radius: 999px;
+}
+.progress-bar {
+  background-color: var(--mz-primary);
+}
+.alert {
+  border-radius: 12px;
+}
+
+/* כרטיסי חשבונות ויעדים (הסגנון הפנימי מוגדר ב-Account.module.css) */
+[class*='Account_container'] {
+  background: var(--mz-card);
+  border: 1px solid var(--mz-border) !important;
+  border-right: 5px solid var(--mz-primary) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.08);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+[class*='Account_container']:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(15, 118, 110, 0.18);
+}
+
+/* תג הגרסה והכותרת התחתונה */
+.mz-version {
+  font-size: 0.75rem;
+  font-weight: 400;
+  opacity: 0.8;
+  direction: ltr;
+}
+.mz-footer {
+  text-align: center;
+  font-size: 0.8rem;
+  color: #5b7f7a;
+  padding: 0.75rem 0;
+}
