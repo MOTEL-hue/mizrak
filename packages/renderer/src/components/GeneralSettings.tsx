@@ -50,7 +50,7 @@ function GeneralSettings() {
               />
             </Form.Group>
             <Form.Group>
-              <Form.Label>Chromium path</Form.Label>
+              <Form.Label>נתיב Chromium</Form.Label>
               <Form.Control
                 className={styles.input}
                 defaultValue={configStore.config?.scraping.chromiumPath}

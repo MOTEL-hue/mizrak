@@ -77,7 +77,7 @@ const EditYnabExporter = ({ handleSave, exporterConfig }: EditYnabExporterProps)
         <Card.Body className={styles.cardBody}>
           <Form className={styles.form}>
             <Form.Group controlId="accessToken" className="mb-3">
-              <Form.Label>Ynab access token</Form.Label>
+              <Form.Label>מפתח גישה של YNAB</Form.Label>
               <Form.Control
                 type="password"
                 value={ynabOptions.accessToken}
@@ -86,7 +86,7 @@ const EditYnabExporter = ({ handleSave, exporterConfig }: EditYnabExporterProps)
             </Form.Group>
             {isValidAccessToken && (
               <Form.Group controlId="budgetId" className="mb-3">
-                <Form.Label>Budget id</Form.Label>
+                <Form.Label>מזהה תקציב</Form.Label>
                 <Form.Select
                   disabled={store.fetchingYnabAccountData}
                   defaultValue={ynabOptions.budgetId}
@@ -100,7 +100,7 @@ const EditYnabExporter = ({ handleSave, exporterConfig }: EditYnabExporterProps)
                 </Form.Select>
               </Form.Group>
             )}
-            {!isLoading && !isValidAccessToken && <div>Invalid access token</div>}
+            {!isLoading && !isValidAccessToken && <div>מפתח הגישה לא תקין</div>}
             {isLoading && <Spinner style={{ width: '20px', height: '20px' }} animation="border" variant="primary" />}
             {!isLoading && isValidAccessToken && (
               <Form.Group controlId="accountNumbersToYnabAccountIds" className="mb-3">
