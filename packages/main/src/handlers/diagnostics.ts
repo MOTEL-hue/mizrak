@@ -1,4 +1,5 @@
-import { App } from '@/app-globals';
+import { App, userDataPath } from '@/app-globals';
+import { Browser, detectBrowserPlatform, getInstalledBrowsers } from '@puppeteer/browsers';
 import { ERROR_RULES, explainText } from '@/backend/import/hebrewErrors';
 import { getConfig } from '@/backend/configManager/configManager';
 import { getLastLines, getLogsFolder } from '@/logging/logger';
@@ -72,4 +73,16 @@ export const exportDiagnosticsHandler = async () => {
   await fs.promises.writeFile(filePath, await buildDiagnosticsReport(), 'utf8');
   shell.showItemInFolder(filePath);
   return { filePath, logsFolder: getLogsFolder() };
+};
+
+// האם הדפדפן של התוכנה כבר הורד (כדי לא להציג הודעת הורדה בלי צורך)
+export const isBrowserInstalledHandler = async () => {
+  try {
+    const platform = detectBrowserPlatform();
+    if (!platform) return false;
+    const installed = await getInstalledBrowsers({ cacheDir: userDataPath });
+    return installed.some((b) => b.browser === Browser.CHROMIUM && b.platform === platform && fs.existsSync(b.executablePath));
+  } catch {
+    return false;
+  }
 };

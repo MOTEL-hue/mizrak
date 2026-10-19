@@ -57,6 +57,10 @@ export async function exportDiagnostics(): Promise<{ filePath: string; logsFolde
   return electron.ipcRenderer.invoke('exportDiagnostics');
 }
 
+export async function isBrowserInstalled(): Promise<boolean> {
+  return electron.ipcRenderer.invoke('isBrowserInstalled');
+}
+
 export async function getErrorGuide(): Promise<{ title: string; text: string }[]> {
   return electron.ipcRenderer.invoke('getErrorGuide');
 }

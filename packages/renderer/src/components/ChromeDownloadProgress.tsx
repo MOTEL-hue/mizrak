@@ -1,3 +1,4 @@
+import { isBrowserInstalled } from '#preload';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
 import { Alert, ProgressBar } from 'react-bootstrap';
@@ -26,6 +27,18 @@ const ChromeDownloadProgress = () => {
   const percent = configStore.chromeDownloadPercent;
   const [ready, setReady] = useState(wasReady);
   const [wasScraping, setWasScraping] = useState(false);
+
+  // אם הדפדפן כבר קיים במחשב, אין צורך להציג את ההודעה
+  useEffect(() => {
+    isBrowserInstalled()
+      .then((installed) => {
+        if (installed) {
+          markReady();
+          setReady(true);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (percent === 100) {
