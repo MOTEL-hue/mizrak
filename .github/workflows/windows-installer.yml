@@ -1,18 +1,13 @@
 name: Windows installer
 
 on:
+  # בנייה רק בהפעלה ידנית, כדי לחסוך בדקות של המאגר הפרטי. הפרסום האמיתי נעשה ב-mizrak-releases
   workflow_dispatch:
     inputs:
       release_version:
         description: 'מספר גרסה לפרסום (למשל 2.1.0). ריק = בנייה בלי פרסום'
         required: false
         default: ''
-  push:
-    branches:
-      - 'claude/**'
-      - main
-    tags:
-      - 'v*'
 
 permissions:
   contents: write
