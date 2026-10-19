@@ -6,6 +6,11 @@ on:
     branches:
       - 'claude/**'
       - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
   windows:
@@ -19,9 +24,17 @@ jobs:
       - run: yarn
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
-      - run: yarn build
-      - run: ./node_modules/.bin/electron-builder --config electron-builder.yml --win --publish never
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
+        run: yarn version --no-git-tag-version --new-version "${GITHUB_REF_NAME#v}"
+      - run: yarn build
+      # בדחיפת תג (v1.0.0 וכדומה) נוצר שחרור ב-GitHub, ומשם התוכנה מקבלת עדכונים אוטומטיים
+      - name: Build installer${{ startsWith(github.ref, 'refs/tags/v') && ' and publish release' || '' }}
+        shell: bash
+        run: ./node_modules/.bin/electron-builder --config electron-builder.yml --win --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
           name: mizrak-windows
