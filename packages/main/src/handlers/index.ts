@@ -9,7 +9,6 @@ import { createSpreadsheet } from '@/backend/export/outputVendors/googleSheets/g
 import { getAllSpreadsheets } from '@/backend/export/outputVendors/googleSheets/googleSheetsInternalAPI';
 import { getYnabAccountData } from '@/manual/setupHelpers';
 import { dialog, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
-import { discord, repository } from '../../../../package.json';
 import Sentry from '../logging/sentry';
 import { getConfigHandler, updateConfigHandler } from './configHandlers';
 import { exportDiagnosticsHandler, getErrorGuideHandler, isBrowserInstalledHandler } from './diagnostics';
@@ -41,8 +40,6 @@ const functions: Record<string, Listener> = {
   getAppInfo: async () => {
     return {
       sourceCommitShort: import.meta.env.VITE_SOURCE_COMMIT_SHORT,
-      repository,
-      discordChanel: discord,
       currentVersion: App.getVersion(),
     };
   },

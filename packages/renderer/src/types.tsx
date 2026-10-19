@@ -38,8 +38,6 @@ export interface Config {
 
 export interface AppInfo {
   sourceCommitShort: string;
-  repository: string;
-  discordChanel: string;
   currentVersion: string;
 }
 
