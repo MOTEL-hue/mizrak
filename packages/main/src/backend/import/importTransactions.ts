@@ -29,6 +29,11 @@ import { createOperationLogger, type OperationLogger } from '/@/logging/operatio
 type ScrapingConfig = Config['scraping'];
 
 const DEFAULT_MAX_CONCURRENCY = 3;
+// ישראכרט ואמריקן אקספרס חוסמות גישה אוטומטית מהירה, ולכן ממתינים זמן אקראי לפני כל כניסה.
+const THROTTLED_COMPANIES = ['isracard', 'amex'];
+const THROTTLE_MIN_MS = 5000;
+const THROTTLE_MAX_MS = 15000;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const TRANSACTION_STATUS_COMPLETED = 'completed';
 
 export async function scrapeFinancialAccountsAndFetchTransactions(
@@ -69,19 +74,27 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
   const limiter = new Bottleneck({
     maxConcurrent: scrapingConfig.maxConcurrency || DEFAULT_MAX_CONCURRENCY,
   });
+  const throttledLimiter = new Bottleneck({ maxConcurrent: 1 });
   const scrapePromises = activeAccounts.map(async (accountToScrape) => ({
     id: accountToScrape.id,
-    transactions: await limiter.schedule(() =>
-      fetchTransactions(
-        accountToScrape,
-        startDate,
-        scrapingConfig.showBrowser,
-        eventPublisher,
-        chromiumPath,
-        scrapingConfig.timeout,
-        log,
-      ),
-    ),
+    transactions: await limiter.schedule(async () => {
+      const scrape = () =>
+        fetchTransactions(
+          accountToScrape,
+          startDate,
+          scrapingConfig.showBrowser,
+          eventPublisher,
+          chromiumPath,
+          scrapingConfig.timeout,
+          log,
+        );
+      if (!THROTTLED_COMPANIES.includes(accountToScrape.key)) return scrape();
+      // חשבונות של החברות החסומות רצים אחד אחרי השני, עם המתנה אקראית לפני כל אחד
+      return throttledLimiter.schedule(async () => {
+        await sleep(THROTTLE_MIN_MS + Math.random() * (THROTTLE_MAX_MS - THROTTLE_MIN_MS));
+        return scrape();
+      });
+    }),
   }));
 
   const promiseResults = await Promise.allSettled(scrapePromises);
