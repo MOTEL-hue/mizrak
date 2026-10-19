@@ -2,6 +2,7 @@ import { OutputVendorName } from '../types';
 import csv from './exporters/excel.png';
 import json from './exporters/json.jpeg';
 import googleSheets from './exporters/sheets.png';
+import budgetLogo from './logos/logoFishOnly.png';
 import ynab from './exporters/ynab.jpeg';
 import amex from './importers/americanExpress.jpeg';
 import behatsdaa from './importers/behatsdaa.png';
@@ -48,4 +49,5 @@ export const exporterIcons = {
   [OutputVendorName.YNAB]: ynab,
   [OutputVendorName.JSON]: json,
   [OutputVendorName.GOOGLE_SHEETS]: googleSheets,
+  [OutputVendorName.BUDGET]: budgetLogo,
 };

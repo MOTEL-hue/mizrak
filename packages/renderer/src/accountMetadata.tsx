@@ -12,6 +12,7 @@ import {
   type GoogleSheetsConfig,
   type JsonConfig,
   type YnabConfig,
+  type BudgetConfig,
 } from './types';
 
 const icons = {
@@ -42,6 +43,7 @@ const accountIdToDisplayName: Record<CompanyTypes | OutputVendorName, string> = 
   [OutputVendorName.GOOGLE_SHEETS]: 'Google Sheets',
   [OutputVendorName.YNAB]: 'Ynab',
   [OutputVendorName.JSON]: 'Json',
+  [OutputVendorName.BUDGET]: 'התקציב שלי',
 };
 
 const accountMetadata: Record<CompanyTypes | OutputVendorName, AccountMetadata> = mapValues(
@@ -130,6 +132,12 @@ export const exporterUIHandlers: Record<OutputVendorName, ExportResultMetadata> 
     resultType: ExporterResultType.WEBSITE_URL,
     getResultUri(exporter: GoogleSheetsConfig): string {
       return `https://docs.google.com/spreadsheets/d/${exporter.options.spreadsheetId}/edit`;
+    },
+  },
+  [OutputVendorName.BUDGET]: {
+    resultType: ExporterResultType.WEBSITE_URL,
+    getResultUri(exporter: BudgetConfig): string {
+      return `${exporter.options.siteUrl.replace(/\/+$/, '')}/budget/`;
     },
   },
   [OutputVendorName.CSV]: {

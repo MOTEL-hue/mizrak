@@ -14,6 +14,7 @@ export enum OutputVendorName {
   GOOGLE_SHEETS = 'googleSheets',
   JSON = 'json',
   CSV = 'csv',
+  BUDGET = 'budget',
 }
 
 export interface Config {
@@ -22,6 +23,7 @@ export interface Config {
     [OutputVendorName.YNAB]?: YnabConfig;
     [OutputVendorName.JSON]?: JsonConfig;
     [OutputVendorName.CSV]?: CsvConfig;
+    [OutputVendorName.BUDGET]?: BudgetConfig;
   };
   scraping: {
     timeout: number;
@@ -64,6 +66,13 @@ export interface GoogleSheetsConfig extends OutputVendorConfigBase {
   options: {
     credentials: Auth.Credentials;
     spreadsheetId: string;
+  };
+}
+
+export interface BudgetConfig extends OutputVendorConfigBase {
+  options: {
+    siteUrl: string;
+    token: string;
   };
 }
 

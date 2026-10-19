@@ -26,6 +26,8 @@ export async function getConfig(configPath: string = configFilePath): Promise<Co
           config.scraping?.accountsToScrape?.filter((a: { active?: boolean }) => a.active !== false).length ?? 0,
         exportersConfigured: Object.keys(config.outputVendors ?? {}).filter((k) => config.outputVendors[k]?.active),
       });
+      // הגדרות שנשמרו לפני שנוסף יעד ייצוא חדש (למשל התקציב) מקבלות אותו בברירת מחדל
+      config.outputVendors = { ...configExample.outputVendors, ...config.outputVendors };
       return config;
     } catch (e) {
       logAppEvent('CONFIG_LOAD', {

@@ -16,6 +16,7 @@ export interface Config {
     [OutputVendorName.YNAB]?: YnabConfig;
     [OutputVendorName.JSON]?: JsonConfig;
     [OutputVendorName.CSV]?: CsvConfig;
+    [OutputVendorName.BUDGET]?: BudgetConfig;
   };
   scraping: {
     numDaysBack: number;
@@ -34,6 +35,7 @@ export enum OutputVendorName {
   GOOGLE_SHEETS = 'googleSheets',
   JSON = 'json',
   CSV = 'csv',
+  BUDGET = 'budget',
 }
 
 export type OutputVendorConfigs = Exclude<Config['outputVendors'][OutputVendorName], undefined>;
@@ -52,6 +54,13 @@ export interface CsvConfig extends OutputVendorConfigBase {
 export interface JsonConfig extends OutputVendorConfigBase {
   options: {
     filePath: string;
+  };
+}
+
+export interface BudgetConfig extends OutputVendorConfigBase {
+  options: {
+    siteUrl: string;
+    token: string;
   };
 }
 

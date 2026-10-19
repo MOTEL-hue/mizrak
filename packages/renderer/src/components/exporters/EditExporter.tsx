@@ -1,4 +1,5 @@
 import { OutputVendorName, type Exporter, type YnabConfig, type GoogleSheetsConfig } from '../../types';
+import EditBudgetExporter from './EditBudgetExporter';
 import EditFileExporter from './EditFileExporter';
 import EditYnabExporter from './EditYnabExporter';
 import EditSheetsExporter from './google-sheets/EditSheetsExporter';
@@ -17,6 +18,10 @@ export default function EditExporter({ handleSave, exporter }: EditExporterProps
   exporterTypeToEditComponent.set(
     OutputVendorName.JSON,
     <EditFileExporter exporter={exporter} handleSave={handleSave} />,
+  );
+  exporterTypeToEditComponent.set(
+    OutputVendorName.BUDGET,
+    <EditBudgetExporter exporter={exporter} handleSave={handleSave} />,
   );
   exporterTypeToEditComponent.set(
     OutputVendorName.YNAB,

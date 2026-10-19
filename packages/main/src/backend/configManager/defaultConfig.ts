@@ -21,6 +21,13 @@ const DEFAULT_CONFIG: Config = {
         filePath: defaultJsonPath,
       },
     },
+    budget: {
+      active: false,
+      options: {
+        siteUrl: '',
+        token: '',
+      },
+    },
     ynab: {
       active: false,
       options: {
