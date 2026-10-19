@@ -2,6 +2,11 @@ name: Windows installer
 
 on:
   workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'מספר גרסה לפרסום (למשל 2.1.0). ריק = בנייה בלי פרסום'
+        required: false
+        default: ''
   push:
     branches:
       - 'claude/**'
@@ -24,15 +29,17 @@ jobs:
       - run: yarn
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
-      - name: Set version from tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Set version
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_version != ''
         shell: bash
-        run: yarn version --no-git-tag-version --new-version "${GITHUB_REF_NAME#v}"
+        run: yarn version --no-git-tag-version --new-version "${INPUT_VERSION:-${GITHUB_REF_NAME#v}}"
+        env:
+          INPUT_VERSION: ${{ inputs.release_version }}
       - run: yarn build
       # בדחיפת תג (v1.0.0 וכדומה) נוצר שחרור ב-GitHub, ומשם התוכנה מקבלת עדכונים אוטומטיים
-      - name: Build installer${{ startsWith(github.ref, 'refs/tags/v') && ' and publish release' || '' }}
+      - name: Build installer and publish if requested
         shell: bash
-        run: ./node_modules/.bin/electron-builder --config electron-builder.yml --win --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+        run: ./node_modules/.bin/electron-builder --config electron-builder.yml --win --publish ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.release_version != '') && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
