@@ -1,0 +1,29 @@
+name: Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'claude/**'
+      - main
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.node-version'
+          cache: 'yarn'
+      - run: yarn
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+      - run: yarn build
+      - run: ./node_modules/.bin/electron-builder --config electron-builder.yml --win --publish never
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mizrak-windows
+          path: |
+            dist/*.exe
