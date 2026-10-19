@@ -1,24 +1,63 @@
 import { observer } from 'mobx-react-lite';
-import { useMemo } from 'react';
-import { ProgressBar } from 'react-bootstrap';
+import { useEffect, useState } from 'react';
+import { Alert, ProgressBar } from 'react-bootstrap';
 import { useConfigStore } from '../store/ConfigStore';
+
+const READY_KEY = 'mizrakBrowserReady';
+
+const wasReady = () => {
+  try {
+    return localStorage.getItem(READY_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
+const markReady = () => {
+  try {
+    localStorage.setItem(READY_KEY, '1');
+  } catch {
+    // בלי שמירה, ההודעה פשוט תוצג שוב
+  }
+};
 
 const ChromeDownloadProgress = () => {
   const configStore = useConfigStore();
+  const percent = configStore.chromeDownloadPercent;
+  const [ready, setReady] = useState(wasReady);
+  const [wasScraping, setWasScraping] = useState(false);
 
-  const label = useMemo(
-    () =>
-      configStore.chromeDownloadPercent && configStore.chromeDownloadPercent === 100
-        ? 'Download Completed'
-        : `Downloading Chrome ${configStore.chromeDownloadPercent}%`,
-    [configStore.chromeDownloadPercent],
+  useEffect(() => {
+    if (percent === 100) {
+      markReady();
+      setReady(true);
+    }
+  }, [percent]);
+
+  // סריקה שהסתיימה פירושה שהדפדפן כבר מוכן
+  useEffect(() => {
+    if (configStore.isScraping) {
+      setWasScraping(true);
+    } else if (wasScraping) {
+      markReady();
+      setReady(true);
+    }
+  }, [configStore.isScraping, wasScraping]);
+
+  const label = percent === 100 ? 'ההורדה הסתיימה' : `מוריד דפדפן ${percent}%`;
+
+  return (
+    <>
+      {!ready && (
+        <Alert variant="info" className="w-100 text-center">
+          <strong>בהפעלה הראשונה בלבד</strong> התוכנה צריכה להוריד דפדפן (כ-150MB). זה יכול לקחת כמה דקות.
+          <br />
+          לחץ על &quot;הפעל&quot; פעם אחת, והמתן עד שההורדה מסתיימת. אל תסגור את התוכנה. רק אחר כך הסריקה מתחילה.
+        </Alert>
+      )}
+      {!!percent && <ProgressBar now={percent} label={label} className="w-100" />}
+    </>
   );
-
-  if (!configStore.chromeDownloadPercent) {
-    return null;
-  }
-
-  return <ProgressBar now={configStore.chromeDownloadPercent} label={label} className="w-100" />;
 };
 
 export default observer(ChromeDownloadProgress);
