@@ -1,3 +1,4 @@
+import { toHebrewError } from './hebrewErrors';
 import { configFilePath, userDataPath } from '@/app-globals';
 import {
   type AccountToScrapeConfig,
@@ -233,7 +234,7 @@ async function fetchTransactions(
     await eventPublisher.emit(
       EventNames.IMPORTER_ERROR,
       buildImporterEvent(account, {
-        message: error.message,
+        message: toHebrewError(error.message),
         error: error,
         status: AccountStatus.ERROR,
       }),

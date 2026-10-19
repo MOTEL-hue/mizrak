@@ -17,3 +17,9 @@ body {
   height: 100%;
   font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
 }
+
+/* סימון ברור של האלמנט הפעיל בניווט במקלדת */
+:focus-visible {
+  outline: 3px solid #0f766e;
+  outline-offset: 2px;
+}
