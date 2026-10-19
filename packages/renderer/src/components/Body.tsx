@@ -128,12 +128,20 @@ const Body = () => {
       </Container>
       <Container className={styles.buttonsContainer}>
         <ChromeDownloadProgress />
-        <Button variant="dark" size="lg" onClick={cleanAndScrape} disabled={configStore.isScraping}>
+        <Button
+          variant="dark"
+          size="lg"
+          onClick={cleanAndScrape}
+          disabled={configStore.isScraping}
+          title="מתחיל משיכת תנועות מכל החשבונות הפעילים"
+        >
           הפעל
         </Button>
         {shouldShowNextRunTime && <h6>ריצה הבאה: {nextRunTimeString}</h6>}
         <Image
           src={settingsIcon}
+          title="הגדרות כלליות"
+          alt="הגדרות כלליות"
           onClick={() => showModal({} as Account, ModalStatus.GENERAL_SETTINGS)}
           className={styles.pointer}
         />

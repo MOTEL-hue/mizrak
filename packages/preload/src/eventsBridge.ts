@@ -53,6 +53,14 @@ export async function getLogsInfo(numOfLastLines: number) {
   return electron.ipcRenderer.invoke('getLogsInfo', numOfLastLines);
 }
 
+export async function exportDiagnostics(): Promise<{ filePath: string; logsFolder: string } | null> {
+  return electron.ipcRenderer.invoke('exportDiagnostics');
+}
+
+export async function getErrorGuide(): Promise<{ title: string; text: string }[]> {
+  return electron.ipcRenderer.invoke('getErrorGuide');
+}
+
 export async function sentryUserReportProblem(reportProblem: object) {
   return electron.ipcRenderer.invoke('sentryUserReportProblem', reportProblem);
 }

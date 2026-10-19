@@ -18,3 +18,13 @@ describe('toHebrewError', () => {
     expect(toHebrewError(undefined)).toContain('לא ידועה');
   });
 });
+
+describe('explainText', () => {
+  it('מוצא את כל ההסברים שמתאימים ללוג', async () => {
+    const { explainText } = await import('./hebrewErrors');
+    const result = explainText('x\nStatus: 429\nWaiting for selector `#a` failed\nok');
+    expect(result).toHaveLength(2);
+    expect(result[0]).toContain('חסם');
+    expect(explainText('הכול תקין')).toEqual([]);
+  });
+});

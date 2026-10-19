@@ -12,6 +12,7 @@ import { dialog, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'ele
 import { discord, repository } from '../../../../package.json';
 import Sentry from '../logging/sentry';
 import { getConfigHandler, updateConfigHandler } from './configHandlers';
+import { exportDiagnosticsHandler, getErrorGuideHandler } from './diagnostics';
 import { getLogsInfoHandler } from './logsHandlers';
 import { checkForUpdate, downloadUpdate, quitAndInstall } from './updater';
 
@@ -33,6 +34,8 @@ const functions: Record<string, Listener> = {
   updateConfig: updateConfigHandler as Listener<void>,
   getYnabAccountData,
   getLogsInfo: getLogsInfoHandler,
+  exportDiagnostics: exportDiagnosticsHandler,
+  getErrorGuide: getErrorGuideHandler,
   stopPeriodicScraping,
   getAppInfo: async () => {
     return {
