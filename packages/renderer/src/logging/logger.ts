@@ -7,7 +7,7 @@ const logger = log.scope('renderer');
 export type Logger = LogFunctions;
 export type Levels = LogLevel;
 
-logger.info('Welcome to Caspion log (renderer)');
+logger.info('Welcome to Mizrak log (renderer)');
 
 // Add a hook to sanitize all log messages before they're written
 log.hooks.push((message) => {

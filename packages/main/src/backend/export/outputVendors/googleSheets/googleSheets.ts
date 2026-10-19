@@ -13,7 +13,7 @@ import * as googleSheets from './googleSheetsInternalAPI';
 import { logAppEvent } from '/@/logging/operationLogger';
 
 const GOOGLE_SHEETS_DATE_FORMAT = 'YYYY-MM-DD';
-const DEFAULT_SHEET_NAME = '_caspion';
+const DEFAULT_SHEET_NAME = '_mizrak';
 const COLUMN_HEADERS = [
   'תאריך',
   'סכום',

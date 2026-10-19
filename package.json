@@ -1,13 +1,13 @@
 {
-  "name": "caspion",
-  "description": "Caspion is a personal finance management application",
+  "name": "mizrak",
+  "description": "מזרק - משיכת תנועות מהבנקים וחברות האשראי בישראל",
   "version": "2.0.0",
   "private": true,
   "type": "module",
   "author": "Jonathan Goldfarb <brafdlog@gmail.com>",
-  "repository": "https://github.com/brafdlog/caspion",
+  "repository": "https://github.com/MOTEL-hue/mizrak",
   "discord": "https://discord.gg/XWWg7xvJyS",
-  "homepage": "https://github.com/brafdlog/caspion#README.md",
+  "homepage": "https://github.com/MOTEL-hue/mizrak#README.md",
   "license": "MIT",
   "main": "packages/main/dist/index.js",
   "scripts": {
