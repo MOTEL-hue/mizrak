@@ -23,8 +23,11 @@ body {
   font-family: 'Segoe UI', 'Arial', 'Heebo', sans-serif !important;
 }
 
-/* סרגל עליון */
+/* סרגל עליון (נשאר צמוד למעלה גם בגלילה, כדי שהכפתורים תמיד נגישים) */
 .navbar {
+  position: sticky;
+  top: 0;
+  z-index: 1020;
   background: linear-gradient(90deg, var(--mz-primary-dark), var(--mz-primary)) !important;
   border-bottom: none !important;
   color: #ffffff;

@@ -15,6 +15,7 @@ import isracard from './importers/isracard.jpeg';
 import leumi from './importers/leumi.png';
 import leumiCard from './importers/leumicard.png';
 import massad from './importers/massad.png';
+import pagi from './importers/pagi.png';
 import max from './importers/max.jpg';
 import mercantile from './importers/mercantile.png';
 import mizrahi from './importers/mizrahi.png';
@@ -38,6 +39,7 @@ export const importerIcons = {
   mizrahi,
   leumi,
   massad,
+  pagi,
   yahav,
   beyahadBishvilha,
   behatsdaa,
