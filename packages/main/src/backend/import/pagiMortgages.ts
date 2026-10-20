@@ -1,10 +1,14 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import puppeteer, { type Page } from 'puppeteer-core';
+import { userDataPath } from '@/app-globals';
 import { getProxyArgs } from '@/backend/proxyConfig';
 
 // משיכת פירוט המשכנתאות מאתר פאג"י (הספרייה של הסורקים לא תומכת בהלוואות ומשכנתאות)
 const PAGI_LOGIN_URL =
   'https://online.pagi.co.il/MatafLoginService/MatafLoginServlet?bankId=PAGIPORTAL&site=Private&KODSAFA=HE';
 const LOGGED_IN = /FibiMenu\/Online|Resources\/PortalNG\/shell|accountSummary/;
+const SLOW_PAGE_MS = 150_000; // האתר נטען דקה עד שתיים אחרי הכניסה
 const MORTGAGE_HASH = '#/Online/OnLoansMortgageMenu/OnMortgages/mortgageList';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -27,11 +31,11 @@ export function parseMortgageText(text: string): MortgageTrack[] {
     const balance = pick(block, /יתרת\s*קרן[\s:₪]{0,20}([\d,]+\.?\d*)/);
     if (!(balance > 0)) return;
     const rate =
-      pick(block, /ריבית\s*הכוללת\s*החזויה[\s:]{0,20}([\d.]+)\s*%/) ||
+      pick(block, /ריבית\s*הכוללת\s*החזויה\s*(?:\(\d\))?[\s:]{0,20}([\d.]+)\s*%/) ||
       pick(block, /שיעור\s*ריבית[^\d]{0,40}?([\d.]+)\s*%/);
     const payment =
       pick(block, /(?:תשלום|החזר)\s*חודשי\s*(?:\([^)]*\))?[\s:₪]{0,20}([\d,]+\.?\d*)/) ||
-      pick(block, /תשלום\s*אחרון\s*לחיוב[\s:₪]{0,20}([\d,]+\.?\d*)/);
+      pick(block, /תשלום\s*אחרון\s*לחיוב\s*(?:\(\d\))?[\s:₪]{0,20}([\d,]+\.?\d*)/);
     tracks.push({
       id: block.match(/^\s*(\d+)/)?.[1] ?? String(index + 1),
       balance,
@@ -60,7 +64,17 @@ async function closePopup(page: Page) {
   await sleep(500);
 }
 
-async function login(page: Page, credentials: Record<string, string>, timeout: number, interactive: boolean) {
+// טקסט הדף לבדיקה כשהמשיכה נכשלת. מספרים ארוכים (חשבון, הלוואה) מוסתרים
+async function saveDiagnostic(page?: Page) {
+  try {
+    const text = (await page?.evaluate(() => document.body.innerText)) ?? '';
+    fs.writeFileSync(path.join(userDataPath, 'pagi-mortgage-diagnostic.txt'), text.replace(/[\d-]{7,}/g, '###'));
+  } catch {
+    // אבחון בלבד
+  }
+}
+
+async function login(page: Page, credentials: Record<string, string>, timeout: number) {
   await page.goto(PAGI_LOGIN_URL, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#username');
   await page.type('#username', credentials.username ?? '');
@@ -68,7 +82,7 @@ async function login(page: Page, credentials: Record<string, string>, timeout: n
   await sleep(1000);
   await page.click('#continueBtn');
   // אימות נוסף (קוד ב-SMS למשל) אפשר להזין ידנית רק כשהדפדפן מוצג
-  const deadline = Date.now() + (interactive ? Math.max(timeout, 120_000) : timeout);
+  const deadline = Date.now() + Math.max(timeout, SLOW_PAGE_MS);
   while (Date.now() < deadline) {
     await sleep(1500);
     if (LOGGED_IN.test(page.url())) return;
@@ -87,11 +101,12 @@ export async function scrapePagiMortgages(params: {
     headless: !params.showBrowser,
     args: getProxyArgs(),
   });
+  let page: Page | undefined;
   try {
-    const page = await browser.newPage();
+    page = await browser.newPage();
     page.setDefaultTimeout(params.timeout);
-    await login(page, params.credentials, params.timeout, params.showBrowser);
-    await sleep(5000); // האתר נטען לאט אחרי הכניסה
+    await login(page, params.credentials, params.timeout);
+    await sleep(5000);
     await closePopup(page);
     const reached =
       (await clickByText(page, '^(ה)?הלוואות (ו)?(ה)?משכנתאות$')) &&
@@ -100,7 +115,9 @@ export async function scrapePagiMortgages(params: {
       await page.evaluate((hash) => {
         window.location.hash = hash;
       }, MORTGAGE_HASH);
-    await page.waitForFunction(() => /מספר\s*משנה/.test(document.body.innerText), { timeout: params.timeout });
+    await page.waitForFunction(() => /מספר\s*משנה/.test(document.body.innerText), {
+      timeout: Math.max(params.timeout, SLOW_PAGE_MS),
+    });
     await closePopup(page);
     // כל מסלול נטען רק אחרי לחיצה על החץ שלו, ולכן קוראים את הדף אחרי כל פתיחה ומאחדים לפי מספר משנה
     const found = new Map<string, MortgageTrack>();
@@ -123,6 +140,9 @@ export async function scrapePagiMortgages(params: {
     const tracks = Array.from(found.values());
     if (!tracks.length) throw new Error('פאג"י: לא נמצאו מסלולי משכנתא בדף');
     return tracks;
+  } catch (e) {
+    await saveDiagnostic(page);
+    throw e;
   } finally {
     await browser.close();
   }
