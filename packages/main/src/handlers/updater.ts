@@ -10,10 +10,12 @@ export interface UpdateInfo {
 
 autoUpdater.logger = logger;
 autoUpdater.autoDownload = false;
+// בהורדה חלקית האחוזים יכולים לעבור את 100, ולכן מורידים את הקובץ המלא
+autoUpdater.disableDifferentialDownload = true;
 
 // אחוזי ההורדה מוצגים בחלון, כדי שלא יהיה רק סימן מסתובב
 autoUpdater.on('download-progress', (progress) => {
-  BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('updateProgress', Math.round(progress.percent)));
+  BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('updateProgress', Math.min(100, Math.max(0, Math.round(progress.percent)))));
 });
 
 export const checkForUpdate = async () =>

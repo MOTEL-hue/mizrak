@@ -22,7 +22,8 @@ function CheckForUpdates() {
   const [percent, setPercent] = useState(0);
 
   useEffect(() => {
-    onUpdateProgress(setPercent);
+    // רק התקדמות קדימה, ובין 0 ל-100
+    onUpdateProgress((value) => setPercent((prev) => Math.max(prev, Math.min(100, Math.max(0, value)))));
   }, []);
 
   const checkForUpdates = async () => {
