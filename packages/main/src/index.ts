@@ -1,5 +1,7 @@
 import { app } from 'electron';
 import { setHebrewMenu } from './menu';
+import { startBackgroundMode } from './background';
+import { setQuitting } from './quitState';
 import updater from 'electron-updater';
 import { platform } from 'node:process';
 import { registerHandlers } from './handlers';
@@ -29,6 +31,10 @@ if (!isCliScrape) {
  * Disable Hardware Acceleration to save more system resources.
  */
 app.disableHardwareAcceleration();
+
+// יציאה אמיתית (מהסמל, או כיבוי המחשב) לא נחסמת על ידי הסתרת החלון
+app.on('before-quit', setQuitting);
+app.on('session-end', setQuitting);
 
 /**
  * Shout down background process if all windows was closed
@@ -80,7 +86,8 @@ app
       return;
     }
 
-    return restoreOrCreateWindow();
+    await restoreOrCreateWindow();
+    await startBackgroundMode();
   })
   .catch((e) => {
     logAppEvent('APP_STARTUP_ERROR', { errorMessage: (e as Error).message });

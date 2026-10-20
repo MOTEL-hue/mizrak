@@ -9,7 +9,7 @@ import { logAppEvent } from '/@/logging/operationLogger';
 // האתר מקבל עד 500 תנועות בכל שליחה
 const CHUNK_SIZE = 500;
 
-export function importUrl(siteUrl: string) {
+export function budgetBase(siteUrl: string) {
   const base = siteUrl.trim().replace(/\/+$/, '');
   if (!base) {
     throw new Error('חסרה כתובת האתר של התקציב. יש להכניס אותה בהגדרות היעד "התקציב שלי".');
@@ -17,7 +17,11 @@ export function importUrl(siteUrl: string) {
   if (!/^https:\/\//i.test(base)) {
     throw new Error('כתובת האתר חייבת להתחיל ב-https://');
   }
-  return `${base}/budget/api/import`;
+  return base;
+}
+
+export function importUrl(siteUrl: string) {
+  return `${budgetBase(siteUrl)}/budget/api/import`;
 }
 
 // הסיווגים שנלמדו בתקציב: תיאור התנועה ← סעיף. תנועה בלי סיווג מקבלת את הסיווג שתוקן ידנית בתקציב.

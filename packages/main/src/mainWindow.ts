@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from 'electron';
+import { isQuitting } from './quitState';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,8 +23,19 @@ async function createWindow() {
    *
    * @see https://github.com/electron/electron/issues/25012 for the afford mentioned issue.
    */
+  // סגירת החלון רק מסתירה אותו, והתוכנה ממשיכה לפעול ברקע (יציאה מלאה: מהסמל ליד השעון)
+  browserWindow.on('close', (event) => {
+    if (!isQuitting()) {
+      event.preventDefault();
+      browserWindow.hide();
+    }
+  });
+
   browserWindow.on('ready-to-show', () => {
-    browserWindow?.show();
+    // נפתחת בהפעלה אוטומטית של Windows: בלי להציג חלון
+    if (!process.argv.includes('--hidden')) {
+      browserWindow?.show();
+    }
 
     if (import.meta.env.DEV) {
       browserWindow?.webContents.openDevTools();
@@ -62,6 +74,10 @@ export async function restoreOrCreateWindow() {
 
   if (window === undefined) {
     window = await createWindow();
+  }
+
+  if (!window.isVisible()) {
+    window.show();
   }
 
   if (window.isMinimized()) {

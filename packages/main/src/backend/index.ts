@@ -14,6 +14,10 @@ export { CompanyTypes } from 'israeli-bank-scrapers-core';
 export { Events, configManager, outputVendors };
 
 let intervalId: NodeJS.Timeout | null = null;
+let scrapeRunning = false;
+
+/** האם סריקה כבר רצה (מהחלון או מהסנכרון ברקע), כדי לא להריץ שתיים יחד. */
+export const isScrapeRunning = () => scrapeRunning;
 
 export async function setPeriodicScrapingIfNeeded(config: Config, optionalEventPublisher?: Events.EventPublisher) {
   const hoursInterval = config.scraping.periodicScrapingIntervalHours;
@@ -49,6 +53,18 @@ export function stopPeriodicScraping() {
 }
 
 export async function scrapeAndUpdateOutputVendors(config: Config, optionalEventPublisher?: Events.EventPublisher) {
+  if (scrapeRunning) {
+    throw new Error('סריקה כבר רצה כרגע. יש להמתין שתסתיים.');
+  }
+  scrapeRunning = true;
+  try {
+    return await runScrapeAndExport(config, optionalEventPublisher);
+  } finally {
+    scrapeRunning = false;
+  }
+}
+
+async function runScrapeAndExport(config: Config, optionalEventPublisher?: Events.EventPublisher) {
   const eventPublisher = optionalEventPublisher ?? new Events.BudgetTrackingEventEmitter();
 
   // Create a shared operation logger for the entire scrape + export flow

@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron';
 import electronUpdater from 'electron-updater';
 import logger from '../logging/logger';
+import { setQuitting } from '../quitState';
 
 const { autoUpdater } = electronUpdater;
 
@@ -10,6 +11,8 @@ export interface UpdateInfo {
 
 autoUpdater.logger = logger;
 autoUpdater.autoDownload = false;
+// בהתקנת עדכון התוכנה חייבת להיסגר באמת, ולא רק להסתתר ברקע
+autoUpdater.on('before-quit-for-update', setQuitting);
 // בהורדה חלקית האחוזים יכולים לעבור את 100, ולכן מורידים את הקובץ המלא
 autoUpdater.disableDifferentialDownload = true;
 
