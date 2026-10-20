@@ -5,6 +5,7 @@ import { budgetBase } from '@/backend/export/outputVendors/budget/budget';
 import { toHebrewError } from '@/backend/import/hebrewErrors';
 import { notifyProblem } from '../notify';
 import { summarizeFailures } from './bridgeFormat';
+import { ProgressTracker } from './syncProgress';
 import { logAppEvent } from '/@/logging/operationLogger';
 
 // הגשר לדף התקציב: התוכנה רצה ברקע, שואלת את האתר אם ביקשו סנכרון (או שהגיע הזמן לסנכרון אוטומטי),
@@ -75,6 +76,18 @@ export async function budgetTick() {
     const events = new BudgetTrackingEventEmitter();
     events.on(EventNames.IMPORTER_ERROR, (event) => {
       failures.push({ company: String(event.vendorId ?? ''), message: event.message });
+    });
+    // התקדמות לדף התקציב: אחוזים ומה קורה עכשיו (לכל היותר פעם בשתי שניות)
+    const tracker = new ProgressTracker(
+      config.scraping.accountsToScrape.filter((a) => a.active !== false).map((a) => a.key),
+    );
+    let lastSent = 0;
+    events.onAny((eventName, data) => {
+      tracker.onEvent(String(eventName), data as { message?: string; percent?: number });
+      const now = Date.now();
+      if (now - lastSent < 2000 && eventName !== 'EXPORT_PROCESS_START') return;
+      lastSent = now;
+      call(base, token, 'sync-report', { status: 'progress', ...tracker.snapshot() }).catch(() => undefined);
     });
     try {
       await scrapeAndUpdateOutputVendors(config, events);
