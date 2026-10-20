@@ -74,7 +74,10 @@ const EditBudgetExporter = ({ handleSave, exporter }: EditBudgetExporterProps) =
                 variant="outline-secondary"
                 size="sm"
                 disabled={!options.token}
-                onClick={() => copyToClipboard(options.token).then(() => setCopied(true))}
+                onClick={() => {
+                  copyToClipboard(options.token);
+                  setCopied(true);
+                }}
               >
                 {copied ? 'הועתק' : 'העתקת המפתח'}
               </Button>
