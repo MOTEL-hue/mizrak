@@ -1,3 +1,4 @@
+import { copyToClipboard } from '#preload';
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
 import { Alert, Button, Card, Form, Image } from 'react-bootstrap';
@@ -19,6 +20,7 @@ const createConnectionKey = () => {
 const EditBudgetExporter = ({ handleSave, exporter }: EditBudgetExporterProps) => {
   const [exporterConfig, setExporterConfig] = useState<Exporter>(exporter);
   const [copied, setCopied] = useState(false);
+  const [showKey, setShowKey] = useState(false);
   const options = exporterConfig.options as BudgetConfig['options'];
 
   const updateOption = (optionUpdates: Partial<BudgetConfig['options']>) => {
@@ -44,11 +46,19 @@ const EditBudgetExporter = ({ handleSave, exporter }: EditBudgetExporterProps) =
               <Form.Label>מפתח החיבור</Form.Label>
               <Form.Control
                 dir="ltr"
-                type="password"
+                type={showKey ? 'text' : 'password'}
                 value={options.token}
                 onChange={(e) => updateOption({ token: e.currentTarget.value })}
               />
             </Form.Group>
+            <Form.Check
+              type="checkbox"
+              id="showBudgetKey"
+              className="mb-2"
+              label="הצגת המפתח (אפשר גם לסמן ולהעתיק ידנית)"
+              checked={showKey}
+              onChange={() => setShowKey(!showKey)}
+            />
             <div className="mb-3 d-flex gap-2 flex-wrap">
               <Button
                 variant="outline-primary"
@@ -64,7 +74,7 @@ const EditBudgetExporter = ({ handleSave, exporter }: EditBudgetExporterProps) =
                 variant="outline-secondary"
                 size="sm"
                 disabled={!options.token}
-                onClick={() => navigator.clipboard.writeText(options.token).then(() => setCopied(true))}
+                onClick={() => copyToClipboard(options.token).then(() => setCopied(true))}
               >
                 {copied ? 'הועתק' : 'העתקת המפתח'}
               </Button>
