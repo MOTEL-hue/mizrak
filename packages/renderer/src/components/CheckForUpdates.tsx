@@ -63,7 +63,14 @@ function CheckForUpdates() {
           <span>בודק אם יש גרסה חדשה...</span>
         </div>
       )}
-      {updateState === UPDATE_STATES.NO_NEW_VERSION && <div>התוכנה מעודכנת, אין גרסה חדשה.</div>}
+      {updateState === UPDATE_STATES.NO_NEW_VERSION && (
+        <>
+          <div>התוכנה מעודכנת, אין גרסה חדשה.</div>
+          <Button variant="dark" size="sm" onClick={checkForUpdates}>
+            בדיקה חוזרת
+          </Button>
+        </>
+      )}
       {updateState === UPDATE_STATES.NEW_VERSION_AVAILABLE && (
         <>
           <div>נמצאה גרסה חדשה: {updateInfo?.version}</div>
