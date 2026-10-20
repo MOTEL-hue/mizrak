@@ -234,3 +234,17 @@ export interface Config {
   };
   useReactUI?: boolean;
 }
+
+export interface LocalTransaction {
+  hash: string;
+  date: string;
+  description: string;
+  memo?: string;
+  chargedAmount: number;
+  originalAmount?: number;
+  originalCurrency?: string;
+  category?: string;
+  accountNumber: string;
+  companyKey: string;
+  status?: string;
+}

@@ -1,4 +1,5 @@
 import { type Config } from '@/backend/commonTypes';
+import { saveScrapedTransactions } from '@/backend/localStore';
 import { createTransactionsInExternalVendors } from '@/backend/export/exportTransactions';
 import { scrapeFinancialAccountsAndFetchTransactions } from '@/backend/import/importTransactions';
 import { initProxyIfNeeded, tearDownProxy } from '@/backend/proxyConfig';
@@ -74,6 +75,11 @@ export async function scrapeAndUpdateOutputVendors(config: Config, optionalEvent
       startDate,
       eventPublisher,
       opLog,
+    );
+
+    // עותק מקומי לצפייה בתוכנה, גם אם הייצוא נכשל
+    await saveScrapedTransactions(companyIdToTransactions, config.scraping.accountsToScrape).catch((e) =>
+      opLog.error('LOCAL_STORE_FAILED', e as Error),
     );
 
     // Create export logger that shares context with scrape

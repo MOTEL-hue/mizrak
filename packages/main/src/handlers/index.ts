@@ -11,6 +11,7 @@ import { getYnabAccountData } from '@/manual/setupHelpers';
 import { dialog, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import Sentry from '../logging/sentry';
 import { getConfigHandler, updateConfigHandler } from './configHandlers';
+import { loadWithSeed } from '@/backend/localStore';
 import { exportDiagnosticsHandler, getErrorGuideHandler, isBrowserInstalledHandler } from './diagnostics';
 import { getLogsInfoHandler } from './logsHandlers';
 import { checkForUpdate, downloadUpdate, quitAndInstall } from './updater';
@@ -35,6 +36,7 @@ const functions: Record<string, Listener> = {
   getLogsInfo: getLogsInfoHandler,
   exportDiagnostics: exportDiagnosticsHandler,
   getErrorGuide: getErrorGuideHandler,
+  getLocalTransactions: async () => loadWithSeed(await getConfig()),
   isBrowserInstalled: isBrowserInstalledHandler,
   stopPeriodicScraping,
   getAppInfo: async () => {

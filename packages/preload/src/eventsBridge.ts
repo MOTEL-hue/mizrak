@@ -1,5 +1,6 @@
 import electron from 'electron';
 import {
+  type LocalTransaction,
   type Config,
   type Credentials,
   type HandleScrapingEvent,
@@ -69,6 +70,10 @@ export async function exportDiagnostics(): Promise<{ filePath: string; logsFolde
 
 export async function isBrowserInstalled(): Promise<boolean> {
   return electron.ipcRenderer.invoke('isBrowserInstalled');
+}
+
+export async function getLocalTransactions(): Promise<LocalTransaction[]> {
+  return electron.ipcRenderer.invoke('getLocalTransactions');
 }
 
 export async function getErrorGuide(): Promise<{ title: string; text: string }[]> {
