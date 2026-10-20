@@ -11,6 +11,9 @@ const CHUNK_SIZE = 500;
 
 export function importUrl(siteUrl: string) {
   const base = siteUrl.trim().replace(/\/+$/, '');
+  if (!base) {
+    throw new Error('חסרה כתובת האתר של התקציב. יש להכניס אותה בהגדרות היעד "התקציב שלי".');
+  }
   if (!/^https:\/\//i.test(base)) {
     throw new Error('כתובת האתר חייבת להתחיל ב-https://');
   }

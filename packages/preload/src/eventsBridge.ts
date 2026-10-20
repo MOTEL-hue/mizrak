@@ -76,6 +76,10 @@ export async function getLocalTransactions(): Promise<LocalTransaction[]> {
   return electron.ipcRenderer.invoke('getLocalTransactions');
 }
 
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  return electron.ipcRenderer.invoke('copyTextToClipboard', text);
+}
+
 export async function getErrorGuide(): Promise<{ title: string; text: string }[]> {
   return electron.ipcRenderer.invoke('getErrorGuide');
 }

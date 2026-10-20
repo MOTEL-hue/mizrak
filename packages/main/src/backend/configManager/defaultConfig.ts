@@ -6,7 +6,7 @@ const DEFAULT_CONFIG: Config = {
     numDaysBack: 40,
     showBrowser: false,
     accountsToScrape: [],
-    timeout: 60000,
+    timeout: 120000,
   },
   outputVendors: {
     csv: {

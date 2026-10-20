@@ -28,7 +28,8 @@ import { createOperationLogger, type OperationLogger } from '/@/logging/operatio
 
 type ScrapingConfig = Config['scraping'];
 
-const DEFAULT_MAX_CONCURRENCY = 3;
+// חשבון אחד בכל פעם: פחות עומס על המחשב ופחות חסימות מהאתרים (ברירת המחדל הקודמת, 3, גרמה לפקיעות זמן)
+const DEFAULT_MAX_CONCURRENCY = 1;
 // ישראכרט ואמריקן אקספרס חוסמות גישה אוטומטית מהירה, ולכן ממתינים זמן אקראי לפני כל כניסה.
 const THROTTLED_COMPANIES = ['isracard', 'amex'];
 const THROTTLE_MIN_MS = 5000;

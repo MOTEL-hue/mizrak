@@ -8,7 +8,7 @@ import { createClient, validateToken } from '@/backend/export/outputVendors/goog
 import { createSpreadsheet } from '@/backend/export/outputVendors/googleSheets/googleSheets';
 import { getAllSpreadsheets } from '@/backend/export/outputVendors/googleSheets/googleSheetsInternalAPI';
 import { getYnabAccountData } from '@/manual/setupHelpers';
-import { dialog, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import { clipboard, dialog, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import Sentry from '../logging/sentry';
 import { getConfigHandler, updateConfigHandler } from './configHandlers';
 import { loadWithSeed } from '@/backend/localStore';
@@ -36,6 +36,10 @@ const functions: Record<string, Listener> = {
   getLogsInfo: getLogsInfoHandler,
   exportDiagnostics: exportDiagnosticsHandler,
   getErrorGuide: getErrorGuideHandler,
+  copyTextToClipboard: (_: unknown, text: string) => {
+    clipboard.writeText(String(text));
+    return true;
+  },
   getLocalTransactions: async () => loadWithSeed(await getConfig()),
   isBrowserInstalled: isBrowserInstalledHandler,
   stopPeriodicScraping,

@@ -1,4 +1,4 @@
-import { copyToClipboard } from '#preload';
+import { copyTextToClipboard } from '#preload';
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
 import { Alert, Button, Card, Form, Image } from 'react-bootstrap';
@@ -75,8 +75,7 @@ const EditBudgetExporter = ({ handleSave, exporter }: EditBudgetExporterProps) =
                 size="sm"
                 disabled={!options.token}
                 onClick={() => {
-                  copyToClipboard(options.token);
-                  setCopied(true);
+                  copyTextToClipboard(options.token).then(() => setCopied(true));
                 }}
               >
                 {copied ? 'הועתק' : 'העתקת המפתח'}
