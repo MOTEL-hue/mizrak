@@ -3,6 +3,9 @@ import { getConfig } from '@/backend/configManager/configManager';
 import { BudgetTrackingEventEmitter, EventNames } from '@/backend/eventEmitters/EventEmitter';
 import { budgetBase } from '@/backend/export/outputVendors/budget/budget';
 import { toHebrewError } from '@/backend/import/hebrewErrors';
+import { scrapePagiMortgages } from '@/backend/import/pagiMortgages';
+import getChrome from '@/backend/import/downloadChromium';
+import { userDataPath } from '@/app-globals';
 import { notifyProblem } from '../notify';
 import { summarizeFailures } from './bridgeFormat';
 import { ProgressTracker } from './syncProgress';
@@ -40,6 +43,32 @@ async function pushRates(base: string, token: string) {
     logAppEvent('BUDGET_RATES_PUSHED', { status: result.status });
   } catch (e) {
     logAppEvent('BUDGET_RATES_FAILED', { errorMessage: (e as Error).message });
+  }
+}
+
+// פירוט המשכנתאות מפאג"י נמשך אחרי הסריקה ונשלח לדף החובות. כישלון כאן לא מפיל את הסנכרון
+async function pushMortgages(
+  base: string,
+  token: string,
+  config: Awaited<ReturnType<typeof getConfig>>,
+  tracker: ProgressTracker,
+) {
+  const account = config.scraping.accountsToScrape.find((a) => a.key === 'pagi' && a.active !== false);
+  if (!account) return;
+  try {
+    await call(base, token, 'sync-report', { status: 'progress', ...tracker.snapshot(), text: 'פאג"י: מושך פירוט משכנתאות' });
+    const chromePath = config.scraping.chromiumPath || (await getChrome(userDataPath, () => undefined));
+    const tracks = await scrapePagiMortgages({
+      credentials: account.loginFields as Record<string, string>,
+      chromePath,
+      showBrowser: config.scraping.showBrowser,
+      timeout: config.scraping.timeout,
+    });
+    const result = await call(base, token, 'mortgage', { tracks });
+    logAppEvent('BUDGET_MORTGAGE_PUSHED', { status: result.status, tracks: tracks.length });
+  } catch (e) {
+    logAppEvent('BUDGET_MORTGAGE_FAILED', { errorMessage: (e as Error).message });
+    notifyProblem('מזרק: משיכת המשכנתא נכשלה', toHebrewError((e as Error).message));
   }
 }
 
@@ -91,6 +120,7 @@ export async function budgetTick() {
     });
     try {
       await scrapeAndUpdateOutputVendors(config, events);
+      await pushMortgages(base, token, config, tracker);
       const summary = summarizeFailures(failures);
       await call(base, token, 'sync-report', { status: summary ? 'error' : 'ok', message: summary });
       if (summary) notifyProblem('מזרק: הסנכרון נכשל בחלק מהחשבונות', `${summary}. לפרטים ולמה לעשות: פתח את מזרק ← עזרה והסברים.`);
