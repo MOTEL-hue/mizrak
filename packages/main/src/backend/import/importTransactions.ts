@@ -24,6 +24,7 @@ import {
 } from '../eventEmitters/EventEmitter';
 import { calculateTransactionHash } from '../transactions/transactions';
 import getChrome from './downloadChromium';
+import { loadResume, saveResume } from './resumeStore';
 import { createOperationLogger, type OperationLogger } from '/@/logging/operationLogger';
 
 type ScrapingConfig = Config['scraping'];
@@ -42,6 +43,7 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
   startDate: Date,
   eventPublisher: EventPublisher,
   opLog?: OperationLogger,
+  resume = false,
 ) {
   // Create operation logger if not provided (for standalone calls)
   const log = opLog ?? createOperationLogger('scrape');
@@ -76,9 +78,12 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
     maxConcurrent: scrapingConfig.maxConcurrency || DEFAULT_MAX_CONCURRENCY,
   });
   const throttledLimiter = new Bottleneck({ maxConcurrent: 1 });
-  const scrapePromises = activeAccounts.map(async (accountToScrape) => ({
-    id: accountToScrape.id,
-    transactions: await limiter.schedule(async () => {
+  const done = resume ? await loadResume(startDate) : {};
+  if (Object.keys(done).length) log.info('RESUME_FROM_PREVIOUS_RUN', { accounts: Object.keys(done).length });
+  const scrapePromises = activeAccounts.map(async (accountToScrape) => {
+    const cached = done[accountToScrape.id];
+    if (cached) return { id: accountToScrape.id, transactions: cached };
+    const transactions = await limiter.schedule(async () => {
       const scrape = () =>
         fetchTransactions(
           accountToScrape,
@@ -95,8 +100,13 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
         await sleep(THROTTLE_MIN_MS + Math.random() * (THROTTLE_MAX_MS - THROTTLE_MIN_MS));
         return scrape();
       });
-    }),
-  }));
+    });
+    if (resume) {
+      done[accountToScrape.id] = transactions;
+      await saveResume(startDate, done).catch(() => undefined);
+    }
+    return { id: accountToScrape.id, transactions };
+  });
 
   const promiseResults = await Promise.allSettled(scrapePromises);
 
