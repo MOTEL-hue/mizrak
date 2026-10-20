@@ -12,6 +12,7 @@ import {
   type EventPublisher,
 } from '@/backend/eventEmitters/EventEmitter';
 import outputVendors from '@/backend/export/outputVendors';
+import { toHebrewError } from '@/backend/import/hebrewErrors';
 import _ from 'lodash';
 import { createOperationLogger, type OperationLogger } from '/@/logging/operationLogger';
 
@@ -101,7 +102,7 @@ export async function createTransactionsInExternalVendors(
       await eventPublisher.emit(
         EventNames.EXPORTER_ERROR,
         new ExporterEvent({
-          message: error.message,
+          message: toHebrewError(error.message),
           error: error,
           ...baseEvent,
         }),

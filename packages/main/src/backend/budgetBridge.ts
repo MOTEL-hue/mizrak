@@ -3,6 +3,7 @@ import { getConfig } from '@/backend/configManager/configManager';
 import { BudgetTrackingEventEmitter, EventNames } from '@/backend/eventEmitters/EventEmitter';
 import { budgetBase } from '@/backend/export/outputVendors/budget/budget';
 import { toHebrewError } from '@/backend/import/hebrewErrors';
+import { notifyProblem } from '../notify';
 import { summarizeFailures } from './bridgeFormat';
 import { logAppEvent } from '/@/logging/operationLogger';
 
@@ -55,9 +56,12 @@ export async function budgetTick() {
       await scrapeAndUpdateOutputVendors(config, events);
       const summary = summarizeFailures(failures);
       await call(base, token, 'sync-report', { status: summary ? 'error' : 'ok', message: summary });
+      if (summary) notifyProblem('מזרק: הסנכרון נכשל בחלק מהחשבונות', `${summary}. לפרטים ולמה לעשות: פתח את מזרק ← עזרה והסברים.`);
       logAppEvent('BUDGET_SYNC_DONE', { failed: failures.length });
     } catch (e) {
-      await call(base, token, 'sync-report', { status: 'error', message: toHebrewError((e as Error).message) });
+      const message = toHebrewError((e as Error).message);
+      await call(base, token, 'sync-report', { status: 'error', message });
+      notifyProblem('מזרק: הסנכרון נכשל', message);
       logAppEvent('BUDGET_SYNC_FAILED', { errorMessage: (e as Error).message });
     }
   } catch (e) {

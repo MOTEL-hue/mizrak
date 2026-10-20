@@ -47,7 +47,9 @@ export const ERROR_RULES: ErrorRule[] = [
 export function toHebrewError(message: string | undefined): string {
   if (!message) return 'אירעה שגיאה לא ידועה.';
   const rule = ERROR_RULES.find((r) => r.pattern.test(message));
-  return rule ? rule.text : `אירעה שגיאה: ${message}`;
+  if (rule) return rule.text;
+  // הודעה שכבר בעברית (למשל מהתקציב) נשארת כמו שהיא
+  return /[\u0590-\u05FF]/.test(message) ? message : `אירעה שגיאה: ${message}`;
 }
 
 /** כל ההסברים שמתאימים לטקסט (למשל לוג שלם), בלי כפילויות. */

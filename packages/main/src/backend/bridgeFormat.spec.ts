@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeFailures } from './bridgeFormat';
+import { displayName, summarizeFailures } from './bridgeFormat';
 
 describe('summarizeFailures', () => {
   it('ריק כשאין כשלים', () => {
@@ -15,5 +15,13 @@ describe('summarizeFailures', () => {
   });
   it('לא ארוך מדי', () => {
     expect(summarizeFailures([{ company: 'leumi', message: 'א'.repeat(500) }]).length).toBeLessThanOrEqual(280);
+  });
+});
+
+describe('displayName', () => {
+  it('שמות בנקים ויעדי ייצוא בעברית', () => {
+    expect(displayName('isracard')).toBe('ישראכרט');
+    expect(displayName('budget')).toBe('התקציב שלי');
+    expect(displayName('zzz')).toBe('zzz');
   });
 });

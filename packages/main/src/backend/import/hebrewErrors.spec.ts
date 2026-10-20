@@ -19,6 +19,12 @@ describe('toHebrewError', () => {
   });
 });
 
+describe('הודעה בעברית', () => {
+  it('נשארת כמו שהיא', () => {
+    expect(toHebrewError('כתובת האתר חייבת להתחיל ב-https://')).toBe('כתובת האתר חייבת להתחיל ב-https://');
+  });
+});
+
 describe('explainText', () => {
   it('מוצא את כל ההסברים שמתאימים ללוג', async () => {
     const { explainText } = await import('./hebrewErrors');

@@ -16,6 +16,7 @@ import {
 import styles from './Body.module.css';
 import CheckForUpdates from './CheckForUpdates';
 import ChromeDownloadProgress from './ChromeDownloadProgress';
+import ProblemsAlert from './ProblemsAlert';
 import GeneralSettings from './GeneralSettings';
 import AccountLogs from './accounts/AccountLogs';
 import AccountsContainer from './accounts/AccountsContainer';
@@ -127,6 +128,7 @@ const Body = () => {
         </Modal>
       </Container>
       <Container className={styles.buttonsContainer}>
+        <ProblemsAlert />
         <ChromeDownloadProgress />
         <Button
           variant="dark"

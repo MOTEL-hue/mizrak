@@ -72,6 +72,7 @@ export class ConfigStore {
   config: Config;
 
   chromeDownloadPercent = 0;
+  problems: { name: string; message: string }[] = [];
   nextAutomaticScrapeDate?: Date | null;
 
   // TODO: move this to a separate store
@@ -130,7 +131,12 @@ export class ConfigStore {
     };
   }
 
+  setProblems(problems: { name: string; message: string }[]) {
+    this.problems = problems;
+  }
+
   clearScrapingStatus() {
+    this.problems = [];
     this.accountScrapingData = new Map();
     this.updateChromeDownloadPercent(0);
     this.nextAutomaticScrapeDate = null;

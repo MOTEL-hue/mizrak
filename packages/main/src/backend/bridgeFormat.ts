@@ -19,10 +19,20 @@ export const COMPANY_NAMES: Record<string, string> = {
   mercantile: 'מרכנתיל',
 };
 
+export const EXPORTER_NAMES: Record<string, string> = {
+  csv: 'אקסל',
+  json: 'קובץ נתונים',
+  budget: 'התקציב שלי',
+  ynab: 'יינאב',
+  googleSheets: 'גיליון גוגל',
+};
+
+export const displayName = (key: string) => COMPANY_NAMES[key] ?? EXPORTER_NAMES[key] ?? key;
+
 export function summarizeFailures(failures: { company: string; message: string }[]) {
   if (failures.length === 0) return '';
   return failures
-    .map((f) => `${COMPANY_NAMES[f.company] ?? f.company}: ${f.message}`)
+    .map((f) => `${displayName(f.company)}: ${f.message}`)
     .join(' | ')
     .slice(0, 280);
 }

@@ -2,7 +2,10 @@ import { App } from '@/app-globals';
 import { scrapeAndUpdateOutputVendors, setPeriodicScrapingIfNeeded, stopPeriodicScraping } from '@/backend';
 import { type Credentials } from '@/backend/commonTypes';
 import { getConfig } from '@/backend/configManager/configManager';
-import { BudgetTrackingEventEmitter } from '@/backend/eventEmitters/EventEmitter';
+import { BudgetTrackingEventEmitter, EventNames } from '@/backend/eventEmitters/EventEmitter';
+import { displayName } from '@/backend/bridgeFormat';
+import { toHebrewError } from '@/backend/import/hebrewErrors';
+import { notifyProblem } from '../notify';
 import electronGoogleOAuth2Connector from '@/backend/export/outputVendors/googleSheets/electronGoogleOAuth2Connector';
 import { createClient, validateToken } from '@/backend/export/outputVendors/googleSheets/googleAuth';
 import { createSpreadsheet } from '@/backend/export/outputVendors/googleSheets/googleSheets';
@@ -78,8 +81,25 @@ export const registerHandlers = () => {
     eventSubscriber.onAny((eventName, eventData) => {
       event.reply('scrapingProgress', JSON.stringify({ eventName, eventData }));
     });
+    const problems: { name: string; message: string }[] = [];
+    const collect = (data: { vendorId?: string; message: string }) =>
+      problems.push({ name: displayName(String(data.vendorId ?? '')), message: data.message });
+    eventSubscriber.on(EventNames.IMPORTER_ERROR, collect);
+    eventSubscriber.on(EventNames.EXPORTER_ERROR, collect);
     await setPeriodicScrapingIfNeeded(config, eventSubscriber);
-    await scrapeAndUpdateOutputVendors(config, eventSubscriber);
+    try {
+      await scrapeAndUpdateOutputVendors(config, eventSubscriber);
+    } catch (e) {
+      problems.push({ name: 'הסריקה', message: toHebrewError((e as Error).message) });
+    }
+    if (problems.length > 0) {
+      // הודעה בעברית גם מחוץ לחלון, וגם בתוך החלון עם הסבר
+      event.reply('scrapingSummary', JSON.stringify(problems));
+      notifyProblem(
+        'מזרק: הסריקה הסתיימה עם שגיאות',
+        problems.map((x) => `${x.name}: ${x.message}`).join(' | '),
+      );
+    }
   });
 
   ipcMain.removeAllListeners('getYnabAccountData');

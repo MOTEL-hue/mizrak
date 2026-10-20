@@ -32,6 +32,16 @@ export function onUpdateProgress(callback: (percent: number) => void) {
   }
 }
 
+let summaryCallback: ((problems: { name: string; message: string }[]) => void) | undefined;
+
+export function onScrapingSummary(callback: (problems: { name: string; message: string }[]) => void) {
+  const firstTime = !summaryCallback;
+  summaryCallback = callback;
+  if (firstTime) {
+    electron.ipcRenderer.on('scrapingSummary', (_, problemsStr: string) => summaryCallback?.(JSON.parse(problemsStr)));
+  }
+}
+
 let progressListenerDefined = false;
 
 export async function scrape(handleScrapingEvent: HandleScrapingEvent) {
