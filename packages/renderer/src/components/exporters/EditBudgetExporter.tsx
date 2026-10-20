@@ -1,6 +1,6 @@
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
-import { Button, Card, Form, Image } from 'react-bootstrap';
+import { Alert, Button, Card, Form, Image } from 'react-bootstrap';
 import type { BudgetConfig, Exporter } from '/@/types';
 import styles from './EditFileExporter.module.css';
 
@@ -9,8 +9,16 @@ interface EditBudgetExporterProps {
   exporter: Exporter;
 }
 
+// מפתח חיבור אקראי (mz_ ואחריו 40 תווים). נוצר כאן, ומודבק באתר התקציב
+const createConnectionKey = () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(30));
+  const text = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `mz_${text}`;
+};
+
 const EditBudgetExporter = ({ handleSave, exporter }: EditBudgetExporterProps) => {
   const [exporterConfig, setExporterConfig] = useState<Exporter>(exporter);
+  const [copied, setCopied] = useState(false);
   const options = exporterConfig.options as BudgetConfig['options'];
 
   const updateOption = (optionUpdates: Partial<BudgetConfig['options']>) => {
@@ -33,7 +41,7 @@ const EditBudgetExporter = ({ handleSave, exporter }: EditBudgetExporterProps) =
               />
             </Form.Group>
             <Form.Group controlId="budgetToken" className="mb-3">
-              <Form.Label>מפתח גישה (עם הרשאת ייבוא תקציב)</Form.Label>
+              <Form.Label>מפתח החיבור</Form.Label>
               <Form.Control
                 dir="ltr"
                 type="password"
@@ -41,6 +49,30 @@ const EditBudgetExporter = ({ handleSave, exporter }: EditBudgetExporterProps) =
                 onChange={(e) => updateOption({ token: e.currentTarget.value })}
               />
             </Form.Group>
+            <div className="mb-3 d-flex gap-2 flex-wrap">
+              <Button
+                variant="outline-primary"
+                size="sm"
+                onClick={() => {
+                  updateOption({ token: createConnectionKey() });
+                  setCopied(false);
+                }}
+              >
+                יצירת מפתח חיבור חדש
+              </Button>
+              <Button
+                variant="outline-secondary"
+                size="sm"
+                disabled={!options.token}
+                onClick={() => navigator.clipboard.writeText(options.token).then(() => setCopied(true))}
+              >
+                {copied ? 'הועתק' : 'העתקת המפתח'}
+              </Button>
+            </div>
+            <Alert variant="info" className="small">
+              איך מחברים: 1) לוחצים "יצירת מפתח חיבור חדש" ו"שמור". 2) מעתיקים את המפתח. 3) באתר התקציב נכנסים להגדרות,
+              "חיבור לתוכנת מזרק", ומדביקים אותו. 4) מסמנים "פעיל". מעכשיו כל הפעלה שולחת את התנועות לתקציב.
+            </Alert>
             <Form.Group controlId="exporterActive">
               <Form.Check
                 type="switch"
