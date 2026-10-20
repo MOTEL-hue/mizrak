@@ -18,6 +18,7 @@ async function call(base: string, token: string, path: string, body?: unknown) {
     method: body === undefined ? 'GET' : 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
   });
 }
 

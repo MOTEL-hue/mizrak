@@ -50,7 +50,7 @@ const exportTransactions: ExportTransactionsFunction = async ({ transactionsToCr
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
   let rules: Record<string, string> = {};
   try {
-    const rulesResponse = await fetch(url.replace(/import$/, 'categories'), { headers });
+    const rulesResponse = await fetch(url.replace(/import$/, 'categories'), { headers, signal: AbortSignal.timeout(20_000) });
     if (rulesResponse.ok) rules = ((await rulesResponse.json()) as { rules?: Record<string, string> }).rules ?? {};
   } catch {
     // בלי סיווגים עדיין אפשר לשלוח את התנועות
@@ -61,6 +61,8 @@ const exportTransactions: ExportTransactionsFunction = async ({ transactionsToCr
       method: 'POST',
       headers,
       body: JSON.stringify({ transactions: chunk }),
+      // בלי הגבלה, אתר איטי או כתובת שגויה היו תוקעים את הסריקה בלי סוף
+      signal: AbortSignal.timeout(90_000),
     });
     if (!response.ok) {
       logAppEvent('BUDGET_EXPORT_FAILED', { status: response.status });
