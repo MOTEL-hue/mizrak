@@ -5,6 +5,7 @@ import { getProxyArgs } from '@/backend/proxyConfig';
 const PAGI_LOGIN_URL =
   'https://online.pagi.co.il/MatafLoginService/MatafLoginServlet?bankId=PAGIPORTAL&site=Private&KODSAFA=HE';
 const LOGGED_IN = /FibiMenu\/Online|Resources\/PortalNG\/shell|accountSummary/;
+const MORTGAGE_HASH = '#/Online/OnLoansMortgageMenu/OnMortgages/mortgageList';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface MortgageTrack {
@@ -23,13 +24,14 @@ export function parseMortgageText(text: string): MortgageTrack[] {
   const blocks = text.split(/מספר\s*משנה\s*:?\s*/).slice(1);
   const tracks: MortgageTrack[] = [];
   blocks.forEach((block, index) => {
-    const balance = pick(block, /יתרת\s*קרן[^\d\n]{0,20}([\d,]+\.?\d*)/);
+    const balance = pick(block, /יתרת\s*קרן[\s:₪]{0,20}([\d,]+\.?\d*)/);
     if (!(balance > 0)) return;
     const rate =
-      pick(block, /ריבית\s*הכוללת\s*החזויה[^\d\n]{0,25}([\d.]+)\s*%/) || pick(block, /שיעור\s*ריבית[^\d\n]{0,25}([\d.]+)\s*%/);
+      pick(block, /ריבית\s*הכוללת\s*החזויה[\s:]{0,20}([\d.]+)\s*%/) ||
+      pick(block, /שיעור\s*ריבית[^\d]{0,40}?([\d.]+)\s*%/);
     const payment =
-      pick(block, /(?:תשלום|החזר)\s*חודשי[^\d\n]{0,40}([\d,]+\.?\d*)/) ||
-      pick(block, /תשלום\s*אחרון\s*לחיוב[^\d\n]{0,20}([\d,]+\.?\d*)/);
+      pick(block, /(?:תשלום|החזר)\s*חודשי\s*(?:\([^)]*\))?[\s:₪]{0,20}([\d,]+\.?\d*)/) ||
+      pick(block, /תשלום\s*אחרון\s*לחיוב[\s:₪]{0,20}([\d,]+\.?\d*)/);
     tracks.push({
       id: block.match(/^\s*(\d+)/)?.[1] ?? String(index + 1),
       balance,
@@ -51,6 +53,11 @@ async function clickByText(page: Page, pattern: string) {
     hit?.click();
     return !!hit;
   }, pattern);
+}
+
+async function closePopup(page: Page) {
+  await clickByText(page, '^(סגור|סגירה|×|X)$');
+  await sleep(500);
 }
 
 async function login(page: Page, credentials: Record<string, string>, timeout: number, interactive: boolean) {
@@ -84,18 +91,36 @@ export async function scrapePagiMortgages(params: {
     const page = await browser.newPage();
     page.setDefaultTimeout(params.timeout);
     await login(page, params.credentials, params.timeout, params.showBrowser);
-    await sleep(2000);
-    if (!(await clickByText(page, '^הלוואות ומשכנתאות$'))) throw new Error('פאג"י: לא נמצאה התפריט "הלוואות ומשכנתאות"');
-    await sleep(1500);
-    if (!(await clickByText(page, '^פירוט משכנתאות$'))) throw new Error('פאג"י: לא נמצא "פירוט משכנתאות"');
+    await sleep(5000); // האתר נטען לאט אחרי הכניסה
+    await closePopup(page);
+    const reached =
+      (await clickByText(page, '^(ה)?הלוואות (ו)?(ה)?משכנתאות$')) &&
+      (await sleep(1500), await clickByText(page, '^פירוט משכנתאות$'));
+    if (!reached)
+      await page.evaluate((hash) => {
+        window.location.hash = hash;
+      }, MORTGAGE_HASH);
     await page.waitForFunction(() => /מספר\s*משנה/.test(document.body.innerText), { timeout: params.timeout });
-    // כל מסלול נפתח בלחיצה על החץ שלו
-    await page.evaluate(() => {
-      document.querySelectorAll<HTMLElement>('[aria-expanded="false"]').forEach((el) => el.click());
-    });
-    await sleep(1500);
-    const text = await page.evaluate(() => document.body.innerText);
-    const tracks = parseMortgageText(text);
+    await closePopup(page);
+    // כל מסלול נטען רק אחרי לחיצה על החץ שלו, ולכן קוראים את הדף אחרי כל פתיחה ומאחדים לפי מספר משנה
+    const found = new Map<string, MortgageTrack>();
+    const rows = await page.evaluate(
+      () =>
+        Array.from(document.querySelectorAll<HTMLElement>('div, li, tr')).filter(
+          (el) => /^מספר\s*הלוואה/.test(el.innerText.trim()) && el.innerText.length < 120,
+        ).length,
+    );
+    for (let i = 0; i < Math.max(rows, 1); i += 1) {
+      await page.evaluate((index) => {
+        const headers = Array.from(document.querySelectorAll<HTMLElement>('div, li, tr')).filter(
+          (el) => /^מספר\s*הלוואה/.test(el.innerText.trim()) && el.innerText.length < 120,
+        );
+        headers[index]?.click();
+      }, i);
+      await sleep(2000);
+      parseMortgageText(await page.evaluate(() => document.body.innerText)).forEach((t) => found.set(t.id, t));
+    }
+    const tracks = Array.from(found.values());
     if (!tracks.length) throw new Error('פאג"י: לא נמצאו מסלולי משכנתא בדף');
     return tracks;
   } finally {
