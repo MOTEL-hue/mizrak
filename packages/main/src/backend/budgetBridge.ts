@@ -23,6 +23,25 @@ async function call(base: string, token: string, path: string, body?: unknown) {
   });
 }
 
+// ריבית בנק ישראל נמשכת מהמחשב שלך ונשלחת לתקציב, כי שרת בענן לא תמיד מצליח להביא אותה
+const BOI_RATES_URL =
+  'https://edge.boi.gov.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/BIR/1.0/?c%5BSERIES_CODE%5D=BIR_RATE&format=csv&startperiod=2015-01';
+
+async function pushRates(base: string, token: string) {
+  try {
+    const response = await fetch(BOI_RATES_URL, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) return;
+    const csv = await response.text();
+    const result = await call(base, token, 'rates-push', { csv });
+    logAppEvent('BUDGET_RATES_PUSHED', { status: result.status });
+  } catch (e) {
+    logAppEvent('BUDGET_RATES_FAILED', { errorMessage: (e as Error).message });
+  }
+}
+
 export async function budgetTick() {
   if (busy || isScrapeRunning()) return;
   const config = await getConfig().catch(() => undefined);
@@ -40,7 +59,12 @@ export async function budgetTick() {
   try {
     const poll = await call(base, token, 'sync-poll');
     if (!poll.ok) return;
-    const { pending, due } = (await poll.json()) as { pending?: boolean; due?: boolean };
+    const { pending, due, rates_due: ratesDue } = (await poll.json()) as {
+      pending?: boolean;
+      due?: boolean;
+      rates_due?: boolean;
+    };
+    if (ratesDue) await pushRates(base, token);
     if (!pending && !due) return;
 
     busy = true;
