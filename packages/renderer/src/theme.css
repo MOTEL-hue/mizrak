@@ -83,20 +83,6 @@ h1, h2, h3, h4 {
   border-radius: 12px;
 }
 
-/* כרטיסי חשבונות ויעדים (הסגנון הפנימי מוגדר ב-Account.module.css) */
-[class*='Account_container'] {
-  background: var(--mz-card);
-  border: 1px solid var(--mz-border) !important;
-  border-right: 5px solid var(--mz-primary) !important;
-  border-radius: 12px !important;
-  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.08);
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
-}
-[class*='Account_container']:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(15, 118, 110, 0.18);
-}
-
 /* תג הגרסה והכותרת התחתונה */
 .mz-version {
   font-size: 0.75rem;
