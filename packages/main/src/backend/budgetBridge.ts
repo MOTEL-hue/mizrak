@@ -137,6 +137,8 @@ export async function budgetTick() {
     const tracker = new ProgressTracker(
       config.scraping.accountsToScrape.filter((a) => a.active !== false).map((a) => a.key),
     );
+    // התקדמות מיידית (גם אם כל החשבונות נלקחים מהשמור ואין אירועים), כדי שדף התקציב לא יציג רק "מסנכרן"
+    call(base, token, 'sync-report', { status: 'progress', ...tracker.snapshot(), text: 'מתחיל לסרוק' }).catch(() => undefined);
     let lastSent = 0;
     events.onAny((eventName, data) => {
       tracker.onEvent(String(eventName), data as { message?: string; percent?: number });

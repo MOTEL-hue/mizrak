@@ -75,7 +75,7 @@ export async function scrape(
     showBrowser, // shows the browser while scraping, good for debugging (default false)
     verbose: false, // include more debug info about in the output
     executablePath: chromePath,
-    defaultTimeout: [...SLOW_COMPANIES, 'visaCal', 'max'].includes(companyId) ? Math.max(timeout, SLOW_TIMEOUT_MS) : timeout,
+    defaultTimeout: SLOW_COMPANIES.includes(companyId) ? Math.max(timeout, SLOW_TIMEOUT_MS) : timeout,
     // פרופיל קבוע לקבוצת הבינלאומי: אחרי אימות ידני אחד האתר זוכר את הדפדפן ופחות חוסם
     args: SLOW_COMPANIES.includes(companyId)
       ? [...proxyArgs, `--user-data-dir=${path.join(userDataPath, 'browser-profiles', companyId)}`]
