@@ -1,4 +1,4 @@
-import { pullMortgagesInApp, reportAppRun } from '@/backend/budgetBridge';
+import { pullMortgagesInApp, reportAppProgress, reportAppRun } from '@/backend/budgetBridge';
 import { loadMortgages } from '@/backend/import/mortgageStore';
 import { clearResume, loadResumeInfo } from '@/backend/import/resumeStore';
 import { App } from '@/app-globals';
@@ -99,6 +99,7 @@ export const registerHandlers = () => {
     eventSubscriber.on(EventNames.EXPORTER_ERROR, collect);
     await setPeriodicScrapingIfNeeded(config, eventSubscriber);
     await reportAppRun(config, 'running');
+    reportAppProgress(config, eventSubscriber);
     try {
       await scrapeAndUpdateOutputVendors(config, eventSubscriber);
       const mortgageError = await pullMortgagesInApp(config);

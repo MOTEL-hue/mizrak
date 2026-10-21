@@ -210,6 +210,27 @@ export async function pullMortgagesInApp(config: Awaited<ReturnType<typeof getCo
   }
 }
 
+// התקדמות של סריקה שהופעלה מתוך התוכנה, כדי שדף התקציב יציג אחוזים ושלבים גם אז
+export function reportAppProgress(config: Awaited<ReturnType<typeof getConfig>>, events: BudgetTrackingEventEmitter) {
+  const budget = config.outputVendors.budget;
+  if (!budget?.active || !budget.options.token || !budget.options.siteUrl) return;
+  try {
+    const base = budgetBase(budget.options.siteUrl);
+    const token = budget.options.token;
+    const tracker = new ProgressTracker(config.scraping.accountsToScrape.filter((a) => a.active !== false).map((a) => a.key));
+    let lastSent = 0;
+    events.onAny((eventName, data) => {
+      tracker.onEvent(String(eventName), data as { message?: string; percent?: number });
+      const now = Date.now();
+      if (now - lastSent < 2000 && eventName !== 'EXPORT_PROCESS_START') return;
+      lastSent = now;
+      call(base, token, 'sync-report', { status: 'progress', ...tracker.snapshot() }).catch(() => undefined);
+    });
+  } catch (e) {
+    logAppEvent('BUDGET_APP_REPORT_FAILED', { errorMessage: (e as Error).message });
+  }
+}
+
 // סריקה שהופעלה מהכפתור "הפעל" בתוך התוכנה מדווחת לדף התקציב, כדי שיציג שהסנכרון עודכן ולא יתחיל סנכרון מיותר
 export async function reportAppRun(
   config: Awaited<ReturnType<typeof getConfig>>,
