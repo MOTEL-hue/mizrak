@@ -2,6 +2,8 @@ import { app, Menu, nativeImage, Tray } from 'electron';
 import { existsSync, promises as fs } from 'fs';
 import path from 'path';
 import { budgetTick, startBudgetBridge } from '@/backend/budgetBridge';
+import { isScrapeRunning } from '@/backend';
+import { startAutoUpdate } from './handlers/updater';
 import { restoreOrCreateWindow } from '/@/mainWindow';
 import { logAppEvent } from './logging/operationLogger';
 import { setQuitting } from './quitState';
@@ -66,4 +68,5 @@ export async function startBackgroundMode() {
   }
 
   startBudgetBridge();
+  if (app.isPackaged) startAutoUpdate(isScrapeRunning, () => void restoreOrCreateWindow());
 }
