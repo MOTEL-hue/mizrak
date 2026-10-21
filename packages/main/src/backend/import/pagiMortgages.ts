@@ -3,6 +3,7 @@ import path from 'node:path';
 import puppeteer, { type Page } from 'puppeteer-core';
 import { userDataPath } from '@/app-globals';
 import { getProxyArgs } from '@/backend/proxyConfig';
+import { notifyProblem } from '../../notify';
 
 // משיכת פירוט המשכנתאות מאתר פאג"י (הספרייה של הסורקים לא תומכת בהלוואות ומשכנתאות)
 const PAGI_LOGIN_URL =
@@ -90,16 +91,31 @@ async function login(page: Page, credentials: Record<string, string>, timeout: n
   throw new Error('פאג"י: הכניסה לא הצליחה, או שנדרש אימות נוסף');
 }
 
-export async function scrapePagiMortgages(params: {
+interface MortgageParams {
   credentials: Record<string, string>;
   chromePath: string;
   showBrowser: boolean;
   timeout: number;
-}): Promise<MortgageTrack[]> {
+  // שם התיקייה של פרופיל הדפדפן הקבוע (אותו פרופיל של סריקת החשבון, כדי שאישור ידני יחזיק גם כאן)
+  profileKey?: string;
+}
+
+// קודם בדפדפן שקוף, ואם האתר חוסם את הכניסה (בדיקת בוטים או אימות) פותחים חלון גלוי כדי שאפשר יהיה לאשר ידנית
+export async function scrapePagiMortgages(params: MortgageParams): Promise<MortgageTrack[]> {
+  try {
+    return await scrapeMortgagesOnce(params);
+  } catch (e) {
+    if (params.showBrowser || !/הכניסה לא הצליחה|אימות/.test((e as Error).message)) throw e;
+    notifyProblem('מזרק: נדרש אימות ידני בפאג"י', 'נפתח חלון של פאג"י לצורך משיכת המשכנתא. אשר את האימות אם מבקשים, והמשיכה תמשיך לבד.');
+    return scrapeMortgagesOnce({ ...params, showBrowser: true, timeout: Math.max(params.timeout, 300_000) });
+  }
+}
+
+async function scrapeMortgagesOnce(params: MortgageParams): Promise<MortgageTrack[]> {
   const browser = await puppeteer.launch({
     executablePath: params.chromePath,
     headless: !params.showBrowser,
-    args: getProxyArgs(),
+    args: [...getProxyArgs(), `--user-data-dir=${path.join(userDataPath, 'browser-profiles', params.profileKey ?? 'pagi')}`],
   });
   let page: Page | undefined;
   try {

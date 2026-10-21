@@ -98,7 +98,8 @@ export const registerHandlers = () => {
     await reportAppRun(config, 'running');
     try {
       await scrapeAndUpdateOutputVendors(config, eventSubscriber);
-      await pullMortgagesInApp(config);
+      const mortgageError = await pullMortgagesInApp(config);
+      if (mortgageError) problems.push({ name: 'משכנתא (פאג"י)', message: mortgageError });
     } catch (e) {
       problems.push({ name: 'הסריקה', message: toHebrewError((e as Error).message) });
     }

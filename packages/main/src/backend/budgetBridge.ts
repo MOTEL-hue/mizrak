@@ -53,9 +53,9 @@ async function pushMortgages(
   token: string,
   config: Awaited<ReturnType<typeof getConfig>>,
   tracker: ProgressTracker,
-) {
+): Promise<string | null> {
   const account = config.scraping.accountsToScrape.find((a) => (a.key === 'pagi' || a.key === 'beinleumi') && a.active !== false);
-  if (!account) return;
+  if (!account) return null;
   try {
     await call(base, token, 'sync-report', { status: 'progress', ...tracker.snapshot(), text: 'פאג"י: מושך פירוט משכנתאות' });
     const chromePath = config.scraping.chromiumPath || (await getChrome(userDataPath, () => undefined));
@@ -64,15 +64,17 @@ async function pushMortgages(
       chromePath,
       showBrowser: config.scraping.showBrowser,
       timeout: config.scraping.timeout,
+      profileKey: account.key,
     });
     await saveMortgages(tracks).catch(() => undefined);
     const result = await call(base, token, 'mortgage', { tracks });
     logAppEvent('BUDGET_MORTGAGE_PUSHED', { status: result.status, tracks: tracks.length });
+    return null;
   } catch (e) {
     logAppEvent('BUDGET_MORTGAGE_FAILED', { errorMessage: (e as Error).message });
-    // חשבון שמוגדר כהבינלאומי אולי לא שייך לפאג"י, ולכן שם לא מציקים בהודעה
-    if (account.key === 'beinleumi') return;
-    notifyProblem('מזרק: משיכת המשכנתא נכשלה', toHebrewError((e as Error).message));
+    const message = toHebrewError((e as Error).message);
+    notifyProblem('מזרק: משיכת המשכנתא נכשלה', message);
+    return message;
   }
 }
 
@@ -129,7 +131,8 @@ export async function budgetTick() {
     });
     try {
       await scrapeAndUpdateOutputVendors(config, events);
-      await pushMortgages(base, token, config, tracker);
+      const mortgageError = await pushMortgages(base, token, config, tracker);
+      if (mortgageError) failures.push({ company: 'pagi', message: `משכנתא: ${mortgageError}` });
       const summary = summarizeFailures(failures);
       // כשחלק מהחשבונות נכשלו, מה שהצליח כבר נשלח לתקציב, ולכן הדיווח הוא "חלקי" ולא כשל מלא
       const allFailed = failures.length > 0 && failures.length >= config.scraping.accountsToScrape.filter((a) => a.active !== false).length;
@@ -155,9 +158,9 @@ export function startBudgetBridge() {
 }
 
 // משיכת משכנתא מהכפתור "הפעל" בתוך התוכנה: נשמרת מקומית להצגה, ונשלחת לתקציב אם הוא מחובר
-export async function pullMortgagesInApp(config: Awaited<ReturnType<typeof getConfig>>) {
+export async function pullMortgagesInApp(config: Awaited<ReturnType<typeof getConfig>>): Promise<string | null> {
   const account = config.scraping.accountsToScrape.find((a) => (a.key === 'pagi' || a.key === 'beinleumi') && a.active !== false);
-  if (!account) return;
+  if (!account) return null;
   try {
     const chromePath = config.scraping.chromiumPath || (await getChrome(userDataPath, () => undefined));
     const tracks = await scrapePagiMortgages({
@@ -165,6 +168,7 @@ export async function pullMortgagesInApp(config: Awaited<ReturnType<typeof getCo
       chromePath,
       showBrowser: config.scraping.showBrowser,
       timeout: config.scraping.timeout,
+      profileKey: account.key,
     });
     await saveMortgages(tracks);
     logAppEvent('MORTGAGE_PULLED_IN_APP', { tracks: tracks.length });
@@ -172,8 +176,10 @@ export async function pullMortgagesInApp(config: Awaited<ReturnType<typeof getCo
     if (budget?.active && budget.options.token && budget.options.siteUrl) {
       await call(budgetBase(budget.options.siteUrl), budget.options.token, 'mortgage', { tracks });
     }
+    return null;
   } catch (e) {
     logAppEvent('MORTGAGE_PULL_FAILED', { errorMessage: (e as Error).message });
+    return toHebrewError((e as Error).message);
   }
 }
 
