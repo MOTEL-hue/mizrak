@@ -3,6 +3,7 @@ import { createScraper, type ScraperOptions } from 'israeli-bank-scrapers-core';
 import { getProxyArgs } from '@/backend/proxyConfig';
 import { logAppEvent } from '/@/logging/operationLogger';
 import puppeteer from 'puppeteer-core';
+import { patchVisaCalLogin } from './calLoginPatch';
 import { grabMortgagesFromLoggedInBrowser } from './pagiMortgages';
 import { userDataPath } from '@/app-globals';
 import path from 'path';
@@ -60,6 +61,8 @@ const CLOSE_POPUPS_SCRIPT = `
   }, 1000);
 })();
 `;
+
+patchVisaCalLogin();
 
 export async function scrape(
   { companyId, credentials, startDate, timeout, showBrowser = false }: ScrapeParameters,
