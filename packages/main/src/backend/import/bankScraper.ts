@@ -28,6 +28,17 @@ type EmitProgressEventFunction = (eventCompanyId: string, message: string) => Pr
 // קבוצת הבינלאומי ופאג"י נטענת לאט, ולכן ממתינים לכל כפתור עד חמש דקות
 const SLOW_COMPANIES = ['beinleumi', 'pagi', 'massad', 'otsarHahayal'];
 const SLOW_TIMEOUT_MS = 300_000;
+// באתר של כאל כפתור "כניסה לחשבון" מופיע לפני שהדף מוכן ללחיצה, והלחיצה האוטומטית הולכת לאיבוד (בלחיצה ידנית אחרי כמה שניות זה עובד).
+// מסתירים אותו בשבע השניות הראשונות, והסורק ממתין שיהיה גלוי ורק אז לוחץ.
+const DELAY_CAL_LOGIN_BUTTON_SCRIPT = `
+(() => {
+  if (window.top !== window) return;
+  const style = document.createElement('style');
+  style.textContent = '#ccLoginDesktopBtn { visibility: hidden !important; }';
+  (document.head || document.documentElement).appendChild(style);
+  setTimeout(() => style.remove(), 7000);
+})();
+`;
 const CLOSE_POPUPS_SCRIPT = `
 (() => {
   const visible = (el) => !!(el && (el.offsetWidth || el.offsetHeight) && getComputedStyle(el).visibility !== 'hidden');
@@ -70,6 +81,7 @@ export async function scrape(
   };
   options.preparePage = async (page) => {
     await page.evaluateOnNewDocument(CLOSE_POPUPS_SCRIPT);
+    if (companyId === 'visaCal') await page.evaluateOnNewDocument(DELAY_CAL_LOGIN_BUTTON_SCRIPT);
     page.on('framenavigated', (frame) => {
       if (frame === page.mainFrame() && !assistedCompanies.has(companyId) && /perfdrive\.com|radware/i.test(frame.url())) {
         botBlockedUntil.set(companyId, Date.now() + BOT_BLOCK_COOLDOWN_MS);
