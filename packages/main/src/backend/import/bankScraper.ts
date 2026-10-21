@@ -34,7 +34,7 @@ const CLOSE_POPUPS_SCRIPT = `
   const isClose = (el) => {
     const label = ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '') + ' ' + (el.className && el.className.toString ? el.className.toString() : '')).toLowerCase();
     const text = (el.textContent || '').trim();
-    return /close|סגור|dismiss/.test(label) || text === '×' || text === 'x' || text === 'X' || text === '✕';
+    return /close|סגור|סגירה|dismiss/.test(label) || ['×', 'x', 'X', '✕', 'לא, תודה', 'לא תודה', 'לא תודה.'].includes(text);
   };
   setInterval(() => {
     try {
