@@ -41,40 +41,48 @@ export const quitAndInstall = () => {
   setImmediate(() => autoUpdater.quitAndInstall());
 };
 
-// עדכון אוטומטי ברקע: בודק כל כמה שעות, מוריד את הגרסה החדשה בלי שמישהו ילחץ, ומתקין לבד בשעות הלילה
-// כשאין סריקה. בשעות אחרות מוצגת הודעה "הגרסה מוכנה" ולחיצה עליה מתקינה. אם התוכנה נסגרת, ההתקנה נעשית בסגירה.
+// עדכון ברקע: בודק כל כמה שעות אם יש גרסה חדשה, ומציג הודעה. ההורדה וההתקנה מתחילות רק אחרי אישור (לחיצה על ההודעה),
+// ואז החלון נפתח, מציג את ההתקדמות, והתוכנה מותקנת ונפתחת מחדש.
 let autoUpdateBusy = false;
+let notifiedVersion = '';
 const AUTO_UPDATE_EVERY_MS = 4 * 60 * 60 * 1000;
+
+async function approveAndInstall(openWindow: () => void) {
+  openWindow();
+  autoUpdateBusy = true;
+  try {
+    await downloadUpdate();
+    quitAndInstall();
+  } catch (e) {
+    logger.info(`Approved update failed: ${(e as Error).message}`);
+    notifiedVersion = '';
+  } finally {
+    autoUpdateBusy = false;
+  }
+}
 
 async function autoUpdateOnce(isScrapeRunning: () => boolean, openWindow: () => void) {
   if (autoUpdateBusy || isScrapeRunning()) return;
   autoUpdateBusy = true;
   try {
     const info = await checkForUpdate();
-    if (!info) return;
-    await downloadUpdate();
-    const hour = new Date().getHours();
-    if (hour >= 2 && hour < 6 && !isScrapeRunning()) {
-      quitAndInstall();
-      return;
-    }
-    if (Notification.isSupported()) {
-      const note = new Notification({ title: 'מזרק: גרסה חדשה מוכנה', body: `גרסה ${info.version} ירדה. לחץ כאן כדי להתקין עכשיו.` });
-      note.on('click', () => {
-        openWindow();
-        quitAndInstall();
-      });
-      note.show();
-    }
+    if (!info || info.version === notifiedVersion || !Notification.isSupported()) return;
+    notifiedVersion = info.version;
+    const note = new Notification({
+      title: 'מזרק: יש גרסה חדשה',
+      body: `גרסה ${info.version} זמינה. לחץ כאן כדי להוריד ולהתקין (התוכנה תיפתח מחדש).`,
+    });
+    note.on('click', () => void approveAndInstall(openWindow));
+    note.show();
   } catch (e) {
-    logger.info(`Auto update failed: ${(e as Error).message}`);
+    logger.info(`Auto update check failed: ${(e as Error).message}`);
   } finally {
     autoUpdateBusy = false;
   }
 }
 
 export function startAutoUpdate(isScrapeRunning: () => boolean, openWindow: () => void) {
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoInstallOnAppQuit = false;
   setTimeout(() => void autoUpdateOnce(isScrapeRunning, openWindow), 90_000);
   setInterval(() => void autoUpdateOnce(isScrapeRunning, openWindow), AUTO_UPDATE_EVERY_MS);
 }
