@@ -1,4 +1,4 @@
-import { pullMortgagesInApp } from '@/backend/budgetBridge';
+import { pullMortgagesInApp, reportAppRun } from '@/backend/budgetBridge';
 import { loadMortgages } from '@/backend/import/mortgageStore';
 import { App } from '@/app-globals';
 import { scrapeAndUpdateOutputVendors, setPeriodicScrapingIfNeeded, stopPeriodicScraping } from '@/backend';
@@ -95,12 +95,18 @@ export const registerHandlers = () => {
     });
     eventSubscriber.on(EventNames.EXPORTER_ERROR, collect);
     await setPeriodicScrapingIfNeeded(config, eventSubscriber);
+    await reportAppRun(config, 'running');
     try {
       await scrapeAndUpdateOutputVendors(config, eventSubscriber);
       await pullMortgagesInApp(config);
     } catch (e) {
       problems.push({ name: 'הסריקה', message: toHebrewError((e as Error).message) });
     }
+    await reportAppRun(config, {
+      problems: problems.length,
+      total: config.scraping.accountsToScrape.filter((a) => a.active !== false).length,
+      message: problems.map((x) => `${x.name}: ${x.message}`).join(' | '),
+    });
     if (problems.length > 0) {
       // הודעה בעברית גם מחוץ לחלון, וגם בתוך החלון עם הסבר
       event.reply('scrapingSummary', JSON.stringify(problems));

@@ -176,3 +176,22 @@ export async function pullMortgagesInApp(config: Awaited<ReturnType<typeof getCo
     logAppEvent('MORTGAGE_PULL_FAILED', { errorMessage: (e as Error).message });
   }
 }
+
+// סריקה שהופעלה מהכפתור "הפעל" בתוך התוכנה מדווחת לדף התקציב, כדי שיציג שהסנכרון עודכן ולא יתחיל סנכרון מיותר
+export async function reportAppRun(
+  config: Awaited<ReturnType<typeof getConfig>>,
+  state: 'running' | { problems: number; total: number; message: string },
+) {
+  const budget = config.outputVendors.budget;
+  if (!budget?.active || !budget.options.token || !budget.options.siteUrl) return;
+  try {
+    const base = budgetBase(budget.options.siteUrl);
+    const body =
+      state === 'running'
+        ? { status: 'running' }
+        : { status: state.problems === 0 ? 'ok' : state.problems >= state.total ? 'error' : 'partial', message: state.message };
+    await call(base, budget.options.token, 'sync-report', body);
+  } catch (e) {
+    logAppEvent('BUDGET_APP_REPORT_FAILED', { errorMessage: (e as Error).message });
+  }
+}
