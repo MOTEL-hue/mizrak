@@ -12,9 +12,8 @@ interface ScrapeParameters {
 
 type EmitProgressEventFunction = (eventCompanyId: string, message: string) => Promise<void>;
 
-// קבוצת הבינלאומי מציגה חלונות הודעה (פרסומות, אישורים) מיד אחרי הכניסה, והם חוסמים את הדף.
+// אתרי הבנקים מציגים חלונות הודעה (פרסומות, אישורים) מיד אחרי הכניסה, והם חוסמים את הדף.
 // הסקריפט סוגר אותם לבד: לוחץ על כפתור סגירה (X) בתוך חלון קופץ גלוי, ולא נוגע בקישורים אחרים.
-const POPUP_COMPANIES = ['beinleumi', 'pagi', 'massad', 'otsarHahayal'];
 const CLOSE_POPUPS_SCRIPT = `
 (() => {
   const visible = (el) => !!(el && (el.offsetWidth || el.offsetHeight) && getComputedStyle(el).visibility !== 'hidden');
@@ -52,11 +51,9 @@ export async function scrape(
     defaultTimeout: timeout,
     args: proxyArgs, // Add proxy configuration to browser args
   };
-  if (POPUP_COMPANIES.includes(companyId)) {
-    options.preparePage = async (page) => {
-      await page.evaluateOnNewDocument(CLOSE_POPUPS_SCRIPT);
-    };
-  }
+  options.preparePage = async (page) => {
+    await page.evaluateOnNewDocument(CLOSE_POPUPS_SCRIPT);
+  };
   const scraper = createScraper(options);
   scraper.onProgress((eventCompanyId: string, payload: { type: string }) => {
     emitProgressEvent(companyId, payload.type);
