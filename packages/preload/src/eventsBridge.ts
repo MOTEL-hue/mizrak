@@ -86,6 +86,15 @@ export async function getLocalTransactions(): Promise<LocalTransaction[]> {
   return electron.ipcRenderer.invoke('getLocalTransactions');
 }
 
+export interface LocalMortgages {
+  savedAt: string;
+  tracks: { id: string; balance: number; rate: number; payment: number; prime: boolean }[];
+}
+
+export async function getLocalMortgages(): Promise<LocalMortgages | null> {
+  return electron.ipcRenderer.invoke('getLocalMortgages');
+}
+
 export async function copyTextToClipboard(text: string): Promise<boolean> {
   return electron.ipcRenderer.invoke('copyTextToClipboard', text);
 }

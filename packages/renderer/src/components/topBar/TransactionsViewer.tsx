@@ -1,4 +1,4 @@
-import { getLocalTransactions } from '#preload';
+import { getLocalMortgages, getLocalTransactions, type LocalMortgages } from '#preload';
 import { useEffect, useMemo, useState } from 'react';
 import { Badge, Col, Form, Modal, Row, Table } from 'react-bootstrap';
 import accountMetadata from '../../accountMetadata';
@@ -23,12 +23,16 @@ const dateText = (iso: string) => iso.split('-').reverse().join('/');
 function TransactionsViewer({ show, onClose }: TransactionsViewerProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [mortgages, setMortgages] = useState<LocalMortgages | null>(null);
   const [account, setAccount] = useState(ALL);
   const [month, setMonth] = useState(ALL);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
     if (!show) return;
+    getLocalMortgages()
+      .then(setMortgages)
+      .catch(() => setMortgages(null));
     getLocalTransactions()
       .then(setTransactions)
       .catch(() => setTransactions([]))
@@ -60,6 +64,41 @@ function TransactionsViewer({ show, onClose }: TransactionsViewerProps) {
         <Modal.Title>הנתונים שלי</Modal.Title>
       </Modal.Header>
       <Modal.Body>
+        {mortgages && mortgages.tracks.length > 0 && (
+          <div className="mb-4">
+            <h5>משכנתא (פאג"י)</h5>
+            <Table striped size="sm" responsive>
+              <thead>
+                <tr>
+                  <th>מסלול</th>
+                  <th>יתרת קרן</th>
+                  <th>ריבית שנתית</th>
+                  <th>החזר חודשי</th>
+                  <th>סוג</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mortgages.tracks.map((t) => (
+                  <tr key={t.id}>
+                    <td>{t.id}</td>
+                    <td>{money(t.balance)} ₪</td>
+                    <td>{t.rate}%</td>
+                    <td>{money(t.payment)} ₪</td>
+                    <td>{t.prime ? 'פריים' : 'אחר'}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <th>סה"כ</th>
+                  <th>{money(mortgages.tracks.reduce((sum, t) => sum + t.balance, 0))} ₪</th>
+                  <th />
+                  <th>{money(mortgages.tracks.reduce((sum, t) => sum + t.payment, 0))} ₪</th>
+                  <th />
+                </tr>
+              </tbody>
+            </Table>
+            <small className="text-muted">עודכן: {new Date(mortgages.savedAt).toLocaleString('he-IL')}</small>
+          </div>
+        )}
         {loaded && transactions.length === 0 ? (
           <p>עוד אין נתונים. לחץ "הפעל" כדי למשוך תנועות מהבנקים וחברות האשראי, והן יופיעו כאן.</p>
         ) : (

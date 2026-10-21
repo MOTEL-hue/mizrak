@@ -4,6 +4,7 @@ import { BudgetTrackingEventEmitter, EventNames } from '@/backend/eventEmitters/
 import { budgetBase } from '@/backend/export/outputVendors/budget/budget';
 import { toHebrewError } from '@/backend/import/hebrewErrors';
 import { scrapePagiMortgages } from '@/backend/import/pagiMortgages';
+import { saveMortgages } from '@/backend/import/mortgageStore';
 import getChrome from '@/backend/import/downloadChromium';
 import { userDataPath } from '@/app-globals';
 import { notifyProblem } from '../notify';
@@ -64,6 +65,7 @@ async function pushMortgages(
       showBrowser: config.scraping.showBrowser,
       timeout: config.scraping.timeout,
     });
+    await saveMortgages(tracks).catch(() => undefined);
     const result = await call(base, token, 'mortgage', { tracks });
     logAppEvent('BUDGET_MORTGAGE_PUSHED', { status: result.status, tracks: tracks.length });
   } catch (e) {
@@ -150,4 +152,27 @@ export async function budgetTick() {
 export function startBudgetBridge() {
   setTimeout(() => void budgetTick(), FIRST_POLL_MS);
   setInterval(() => void budgetTick(), POLL_MS);
+}
+
+// משיכת משכנתא מהכפתור "הפעל" בתוך התוכנה: נשמרת מקומית להצגה, ונשלחת לתקציב אם הוא מחובר
+export async function pullMortgagesInApp(config: Awaited<ReturnType<typeof getConfig>>) {
+  const account = config.scraping.accountsToScrape.find((a) => (a.key === 'pagi' || a.key === 'beinleumi') && a.active !== false);
+  if (!account) return;
+  try {
+    const chromePath = config.scraping.chromiumPath || (await getChrome(userDataPath, () => undefined));
+    const tracks = await scrapePagiMortgages({
+      credentials: account.loginFields as Record<string, string>,
+      chromePath,
+      showBrowser: config.scraping.showBrowser,
+      timeout: config.scraping.timeout,
+    });
+    await saveMortgages(tracks);
+    logAppEvent('MORTGAGE_PULLED_IN_APP', { tracks: tracks.length });
+    const budget = config.outputVendors.budget;
+    if (budget?.active && budget.options.token && budget.options.siteUrl) {
+      await call(budgetBase(budget.options.siteUrl), budget.options.token, 'mortgage', { tracks });
+    }
+  } catch (e) {
+    logAppEvent('MORTGAGE_PULL_FAILED', { errorMessage: (e as Error).message });
+  }
 }

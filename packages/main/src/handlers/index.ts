@@ -1,3 +1,5 @@
+import { pullMortgagesInApp } from '@/backend/budgetBridge';
+import { loadMortgages } from '@/backend/import/mortgageStore';
 import { App } from '@/app-globals';
 import { scrapeAndUpdateOutputVendors, setPeriodicScrapingIfNeeded, stopPeriodicScraping } from '@/backend';
 import { type Credentials } from '@/backend/commonTypes';
@@ -44,6 +46,7 @@ const functions: Record<string, Listener> = {
     return true;
   },
   getLocalTransactions: async () => loadWithSeed(await getConfig()),
+  getLocalMortgages: loadMortgages,
   isBrowserInstalled: isBrowserInstalledHandler,
   stopPeriodicScraping,
   getAppInfo: async () => {
@@ -94,6 +97,7 @@ export const registerHandlers = () => {
     await setPeriodicScrapingIfNeeded(config, eventSubscriber);
     try {
       await scrapeAndUpdateOutputVendors(config, eventSubscriber);
+      await pullMortgagesInApp(config);
     } catch (e) {
       problems.push({ name: 'הסריקה', message: toHebrewError((e as Error).message) });
     }
