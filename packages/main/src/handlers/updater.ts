@@ -13,9 +13,8 @@ autoUpdater.logger = logger;
 autoUpdater.autoDownload = false;
 // בהתקנת עדכון התוכנה חייבת להיסגר באמת, ולא רק להסתתר ברקע
 autoUpdater.on('before-quit-for-update', setQuitting);
-// הורדה דיפרנציאלית מורידה רק את החלקים ששונו בין הגרסאות (בדרך כלל כמה מגה), ולכן הפסקה באמצע עולה מעט.
-// אם היא נכשלת, ההורדה חוזרת לקובץ המלא. האחוזים מוגבלים ל-100 בהצגה.
-autoUpdater.disableDifferentialDownload = false;
+// הורדה דיפרנציאלית נתקעת ב-100% ולא מסתיימת, ולכן מורידים את הקובץ המלא (ההתקדמות מוצגת עד 100)
+autoUpdater.disableDifferentialDownload = true;
 
 // אחוזי ההורדה מוצגים בחלון, כדי שלא יהיה רק סימן מסתובב
 autoUpdater.on('download-progress', (progress) => {
