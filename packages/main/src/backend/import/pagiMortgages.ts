@@ -142,6 +142,12 @@ async function extractFromScreen(page: Page, timeout: number): Promise<MortgageT
       frame = await frameWithText(page, re, Math.max(timeout, SLOW_PAGE_MS));
     }
     if (!frame) throw new Error('פאג"י: דף פירוט המשכנתאות לא נטען');
+    // הקובץ ששומר הבנק (אייקון השמירה) מכיל את כל המסלולים פתוחים, ולכן הוא הדרך האמינה. קריאת המסך היא הגיבוי
+    try {
+      return await extractFromDownload(page);
+    } catch (e) {
+      logAppEvent('MORTGAGE_DOWNLOAD_FIRST_FAILED', { errorMessage: (e as Error).message });
+    }
     // כל מסלול נטען רק אחרי לחיצה על החץ שלו, ולכן קוראים את הדף אחרי כל פתיחה ומאחדים לפי מספר משנה
     const found = new Map<string, MortgageTrack>();
     // כותרות המסלולים ("מספר הלוואה ... מספר משנה"): הרכיב הפנימי ביותר שמתאים. textContent כדי לא לחשב פריסה לכל הדף

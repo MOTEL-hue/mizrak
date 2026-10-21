@@ -11,10 +11,23 @@ type LoginOptions = {
   preAction?: () => Promise<unknown>;
   submitButtonSelector?: string | (() => Promise<unknown>);
 };
-type PageLike = {
+type FrameLike = {
+  url: () => string;
   evaluate: <T>(fn: (...args: never[]) => T, ...args: unknown[]) => Promise<T>;
   waitForSelector: (selector: string, options?: { timeout?: number }) => Promise<unknown>;
+  click: (selector: string) => Promise<void>;
 };
+type PageLike = FrameLike & { frames: () => FrameLike[] };
+
+async function waitForLoginFrame(page: PageLike, timeoutMs: number): Promise<FrameLike> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const frame = page.frames().find((f) => f.url().includes('calconnect') || f.url().includes('connect.cal-online'));
+    if (frame) return frame;
+    await sleep(1000);
+  }
+  throw new Error('לא נמצאה מסגרת ההתחברות של כאל');
+}
 
 export function patchVisaCalLogin() {
   try {
@@ -29,21 +42,20 @@ export function patchVisaCalLogin() {
       const page = this.page;
       options.loginUrl = DIRECT_LOGIN_URL;
       options.checkReadiness = async () => undefined;
+      let loginFrame: FrameLike | null = null;
       options.preAction = async () => {
-        await sleep(2500);
-        // לשונית "כניסה עם שם משתמש"
-        await page.evaluate(() => {
-          const tab = Array.from(document.querySelectorAll<HTMLElement>('button, a, [role="tab"], li, span, div')).find(
-            (el) => (el.textContent ?? '').trim() === 'כניסה עם שם משתמש',
-          );
-          tab?.click();
-        });
-        await page.waitForSelector('[formcontrolname="userName"], input[type="password"]', { timeout: 20_000 });
-        return page;
+        // דף הכניסה מכיל מסגרת (iframe) עם שתי לשוניות: "כניסה מהירה" ו"כניסה עם שם משתמש"
+        const frame = await waitForLoginFrame(page, 40_000);
+        await frame.waitForSelector('#regular-login', { timeout: 30_000 });
+        await sleep(1500);
+        await frame.click('#regular-login');
+        await frame.waitForSelector('[formcontrolname="userName"]', { timeout: 20_000 });
+        loginFrame = frame;
+        return frame;
       };
-      // הכפתור הגלוי ששולח את הטופס (לא הכפתור של שליחת קוד ב-SMS שבלשונית השנייה)
+      // הכפתור הגלוי ששולח את הטופס (לא הכפתור של שליחת קוד ב-SMS)
       options.submitButtonSelector = async () => {
-        await page.evaluate(() => {
+        await (loginFrame ?? page).evaluate(() => {
           const visible = Array.from(document.querySelectorAll<HTMLButtonElement>('button[type="submit"]')).filter(
             (b) => b.offsetParent !== null && !/SMS|סיסמה ב/.test(b.textContent ?? ''),
           );
