@@ -26,7 +26,7 @@ import {
 import { calculateTransactionHash } from '../transactions/transactions';
 import getChrome from './downloadChromium';
 import { loadResume, saveResume } from './resumeStore';
-import { recordBalances } from './balances';
+import { hasBalanceOrIsCard, recordBalances } from './balances';
 import { BOT_BLOCK_MESSAGE, assistedCompanies, botBlockedUntil } from './bankScraper';
 import { notifyProblem } from '../../notify';
 import { createOperationLogger, type OperationLogger } from '/@/logging/operationLogger';
@@ -40,6 +40,7 @@ const THROTTLED_COMPANIES = ['isracard', 'amex'];
 const THROTTLE_MIN_MS = 5000;
 const THROTTLE_MAX_MS = 15000;
 const RETRY_WAIT_MS = 60000;
+const VISIBLE_FALLBACK = ['visaCal', 'max'];
 const SAME_GROUP: Record<string, string | undefined> = { beinleumi: 'pagi', pagi: 'beinleumi' };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const TRANSACTION_STATUS_COMPLETED = 'completed';
@@ -88,7 +89,8 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
   if (Object.keys(done).length) log.info('RESUME_FROM_PREVIOUS_RUN', { accounts: Object.keys(done).length });
   const scrapePromises = activeAccounts.map(async (accountToScrape) => {
     const cached = done[accountToScrape.id];
-    if (cached) return { id: accountToScrape.id, transactions: cached };
+    // חשבון בנק ששמור מסריקה קודמת אבל בלי יתרה שמורה נסרק שוב, כדי שהיתרה תישלח לתקציב
+    if (cached && hasBalanceOrIsCard(accountToScrape.key)) return { id: accountToScrape.id, transactions: cached };
     const transactions = await limiter.schedule(async () => {
       const scrapeOnce = (showBrowser = scrapingConfig.showBrowser, account = accountToScrape) =>
         fetchTransactions(
@@ -151,10 +153,20 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
         } catch (e) {
           if ((botBlockedUntil.get(accountToScrape.key) ?? 0) > Date.now()) return scrapeAssisted();
           if (/INVALID_PASSWORD/i.test((e as Error).message ?? '') && SAME_GROUP[accountToScrape.key]) return switchBank(e as Error);
-          if (!/Waiting for selector|Navigation timeout|net::ERR|Execution context was destroyed/i.test((e as Error).message ?? '')) throw e;
+          if (!/Waiting for selector|Navigation timeout|net::ERR|Execution context was destroyed|detached Frame/i.test((e as Error).message ?? '')) throw e;
           log.info('SCRAPE_RETRY', { importer: accountToScrape.key });
           await sleep(RETRY_WAIT_MS);
-          return scrapeOnce();
+          try {
+            return await scrapeOnce();
+          } catch (e2) {
+            // אתר איטי מאוד או חוסם דפדפן שקוף: ניסיון אחרון בחלון גלוי, שבדרך כלל נטען ועובד
+            if (VISIBLE_FALLBACK.includes(accountToScrape.key) && /Navigation timeout|detached Frame|Execution context/i.test((e2 as Error).message ?? '')) {
+              log.info('SCRAPE_VISIBLE_FALLBACK', { importer: accountToScrape.key });
+              notifyProblem('מזרק: נפתח חלון', `האתר של ${accountToScrape.name ?? accountToScrape.key} איטי או חוסם דפדפן שקוף, ולכן נפתח חלון. אפשר להשאיר אותו פתוח עד שהסריקה תסתיים.`);
+              return scrapeOnce(true);
+            }
+            throw e2;
+          }
         }
       };
       if (!THROTTLED_COMPANIES.includes(accountToScrape.key)) return scrape();
