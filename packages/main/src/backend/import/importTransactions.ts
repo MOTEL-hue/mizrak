@@ -25,7 +25,8 @@ import {
 import { calculateTransactionHash } from '../transactions/transactions';
 import getChrome from './downloadChromium';
 import { loadResume, saveResume } from './resumeStore';
-import { BOT_BLOCK_MESSAGE, botBlockedUntil } from './bankScraper';
+import { BOT_BLOCK_MESSAGE, assistedCompanies, botBlockedUntil } from './bankScraper';
+import { notifyProblem } from '../../notify';
 import { createOperationLogger, type OperationLogger } from '/@/logging/operationLogger';
 
 type ScrapingConfig = Config['scraping'];
@@ -86,23 +87,41 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
     const cached = done[accountToScrape.id];
     if (cached) return { id: accountToScrape.id, transactions: cached };
     const transactions = await limiter.schedule(async () => {
-      const scrapeOnce = () =>
+      const scrapeOnce = (showBrowser = scrapingConfig.showBrowser) =>
         fetchTransactions(
           accountToScrape,
           startDate,
-          scrapingConfig.showBrowser,
+          showBrowser,
           eventPublisher,
           chromiumPath,
           scrapingConfig.timeout,
           log,
         );
       // אתרי בנקים לפעמים מציגים מסך הודעה או נטענים לאט, ובניסיון שני אחרי דקה הכניסה בדרך כלל עוברת
+      // האתר דרש אימות אנושי: פותחים חלון גלוי, ממתינים שהמשתמש יאשר, והסריקה ממשיכה לבד
+      const scrapeAssisted = async () => {
+        const key = accountToScrape.key;
+        log.info('SCRAPE_ASSISTED_START', { importer: key });
+        notifyProblem('מזרק: נדרש אימות ידני', `האתר של ${accountToScrape.name ?? key} ביקש אימות. נפתח חלון: אשר אותו (עד חמש דקות) והסריקה תמשיך לבד.`);
+        assistedCompanies.add(key);
+        try {
+          const result = await scrapeOnce(true);
+          botBlockedUntil.delete(key);
+          return result;
+        } catch {
+          botBlockedUntil.set(key, Date.now() + 3 * 60 * 60 * 1000);
+          throw new Error(BOT_BLOCK_MESSAGE);
+        } finally {
+          assistedCompanies.delete(key);
+        }
+      };
+      // אתרי בנקים לפעמים מציגים מסך הודעה או נטענים לאט, ובניסיון שני אחרי דקה הכניסה בדרך כלל עוברת
       const scrape = async () => {
-        if ((botBlockedUntil.get(accountToScrape.key) ?? 0) > Date.now()) throw new Error(BOT_BLOCK_MESSAGE);
+        if ((botBlockedUntil.get(accountToScrape.key) ?? 0) > Date.now()) return scrapeAssisted();
         try {
           return await scrapeOnce();
         } catch (e) {
-          if ((botBlockedUntil.get(accountToScrape.key) ?? 0) > Date.now()) throw new Error(BOT_BLOCK_MESSAGE);
+          if ((botBlockedUntil.get(accountToScrape.key) ?? 0) > Date.now()) return scrapeAssisted();
           if (!/Waiting for selector|Navigation timeout|net::ERR/i.test((e as Error).message ?? '')) throw e;
           log.info('SCRAPE_RETRY', { importer: accountToScrape.key });
           await sleep(RETRY_WAIT_MS);

@@ -2,8 +2,12 @@ import { type AccountToScrapeConfig } from '@/backend/commonTypes';
 import { createScraper, type ScraperOptions } from 'israeli-bank-scrapers-core';
 import { getProxyArgs } from '@/backend/proxyConfig';
 import { logAppEvent } from '/@/logging/operationLogger';
+import { userDataPath } from '@/app-globals';
+import path from 'path';
 
 // חברות שהאתר שלהן זיהה פעילות אוטומטית ודרש אימות אנושי (Radware): זמן סיום ההמתנה לפני ניסיון נוסף
+// חברות שרצות כרגע במצב מסייע: חלון גלוי והמתנה שהמשתמש יאשר ידנית (במקום סגירה מיידית)
+export const assistedCompanies = new Set<string>();
 export const botBlockedUntil = new Map<string, number>();
 const BOT_BLOCK_COOLDOWN_MS = 3 * 60 * 60 * 1000;
 export const BOT_BLOCK_MESSAGE =
@@ -59,12 +63,15 @@ export async function scrape(
     verbose: false, // include more debug info about in the output
     executablePath: chromePath,
     defaultTimeout: SLOW_COMPANIES.includes(companyId) ? Math.max(timeout, SLOW_TIMEOUT_MS) : timeout,
-    args: proxyArgs, // Add proxy configuration to browser args
+    // פרופיל קבוע לקבוצת הבינלאומי: אחרי אימות ידני אחד האתר זוכר את הדפדפן ופחות חוסם
+    args: SLOW_COMPANIES.includes(companyId)
+      ? [...proxyArgs, `--user-data-dir=${path.join(userDataPath, 'browser-profiles', companyId)}`]
+      : proxyArgs,
   };
   options.preparePage = async (page) => {
     await page.evaluateOnNewDocument(CLOSE_POPUPS_SCRIPT);
     page.on('framenavigated', (frame) => {
-      if (frame === page.mainFrame() && /perfdrive\.com|radware/i.test(frame.url())) {
+      if (frame === page.mainFrame() && !assistedCompanies.has(companyId) && /perfdrive\.com|radware/i.test(frame.url())) {
         botBlockedUntil.set(companyId, Date.now() + BOT_BLOCK_COOLDOWN_MS);
         logAppEvent('BOT_CHALLENGE_DETECTED', { company: companyId });
         // אין טעם להמתין חמש דקות לכפתור שלא יופיע
