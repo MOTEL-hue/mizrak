@@ -106,6 +106,11 @@ export async function budgetTick() {
     events.on(EventNames.IMPORTER_ERROR, (event) => {
       failures.push({ company: String(event.vendorId ?? ''), message: event.message });
     });
+    // ניסיון חוזר או מסייע שהצליח מבטל את השגיאה שדווחה קודם לאותו חשבון
+    events.on(EventNames.IMPORTER_END, (event) => {
+      const company = String(event.vendorId ?? '');
+      for (let i = failures.length - 1; i >= 0; i--) if (failures[i].company === company) failures.splice(i, 1);
+    });
     // התקדמות לדף התקציב: אחוזים ומה קורה עכשיו (לכל היותר פעם בשתי שניות)
     const tracker = new ProgressTracker(
       config.scraping.accountsToScrape.filter((a) => a.active !== false).map((a) => a.key),

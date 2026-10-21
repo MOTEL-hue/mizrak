@@ -85,6 +85,11 @@ export const registerHandlers = () => {
     const collect = (data: { vendorId?: string; message: string }) =>
       problems.push({ name: displayName(String(data.vendorId ?? '')), message: data.message });
     eventSubscriber.on(EventNames.IMPORTER_ERROR, collect);
+    // ניסיון חוזר או מסייע שהצליח מבטל את השגיאה שדווחה קודם לאותו חשבון
+    eventSubscriber.on(EventNames.IMPORTER_END, (data: { vendorId?: string }) => {
+      const name = displayName(String(data.vendorId ?? ''));
+      for (let i = problems.length - 1; i >= 0; i--) if (problems[i].name === name) problems.splice(i, 1);
+    });
     eventSubscriber.on(EventNames.EXPORTER_ERROR, collect);
     await setPeriodicScrapingIfNeeded(config, eventSubscriber);
     try {
