@@ -30,21 +30,28 @@ async function call(base: string, token: string, path: string, body?: unknown) {
 }
 
 // ריבית בנק ישראל נמשכת מהמחשב שלך ונשלחת לתקציב, כי שרת בענן לא תמיד מצליח להביא אותה
-const BOI_RATES_URL =
-  'https://edge.boi.gov.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/BIR/1.0/?c%5BSERIES_CODE%5D=BIR_RATE&format=csv&startperiod=2015-01';
+const BOI_RATES_URLS = [
+  'https://edge.boi.gov.il/FusionEdgeServer/ws/public/sdmxapi/rest/data/BIR?startPeriod=2015-01',
+  'https://edge.boi.gov.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/BIR/1.0/?format=csv&startperiod=2015-01',
+  'https://edge.boi.org.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/BIR/1.0/?format=csv&startperiod=2015-01',
+  'https://edge.boi.gov.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/BIR/1.0/?c%5BSERIES_CODE%5D=BIR_RATE&format=csv&startperiod=2015-01',
+];
 
 async function pushRates(base: string, token: string) {
-  try {
-    const response = await fetch(BOI_RATES_URL, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!response.ok) return;
-    const csv = await response.text();
-    const result = await call(base, token, 'rates-push', { csv });
-    logAppEvent('BUDGET_RATES_PUSHED', { status: result.status });
-  } catch (e) {
-    logAppEvent('BUDGET_RATES_FAILED', { errorMessage: (e as Error).message });
+  // הכתובת הראשונה שהשרת מקבל ממנה נתונים תקינים מנצחת
+  for (const url of BOI_RATES_URLS) {
+    try {
+      const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20_000) });
+      if (!response.ok) {
+        logAppEvent('BUDGET_RATES_FAILED', { url, status: response.status });
+        continue;
+      }
+      const result = await call(base, token, 'rates-push', { csv: await response.text() });
+      logAppEvent('BUDGET_RATES_PUSHED', { url, status: result.status });
+      if (result.ok) return;
+    } catch (e) {
+      logAppEvent('BUDGET_RATES_FAILED', { url, errorMessage: (e as Error).message });
+    }
   }
 }
 

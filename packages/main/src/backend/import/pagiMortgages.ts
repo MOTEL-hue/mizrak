@@ -21,10 +21,25 @@ export interface MortgageTrack {
   rate: number;
   payment: number;
   prime: boolean;
+  months?: number;
 }
 
 const toNumber = (value?: string) => (value ? parseFloat(value.replace(/,/g, '')) || 0 : 0);
 const pick = (block: string, re: RegExp) => toNumber(block.match(re)?.[1]);
+
+// ריבית שנתית מתוך יתרה, החזר חודשי ומספר חודשים שנותרו (לוח שפיצר), בחיפוש בינארי
+export function solveAnnualRate(balance: number, payment: number, months: number): number {
+  if (!(balance > 0 && payment > 0 && months > 0) || payment * months <= balance * 1.0001) return 0;
+  let low = 0;
+  let high = 0.05; // ריבית חודשית
+  for (let i = 0; i < 80; i += 1) {
+    const mid = (low + high) / 2;
+    const pay = (balance * mid) / (1 - (1 + mid) ** -months);
+    if (pay > payment) high = mid;
+    else low = mid;
+  }
+  return Math.round(((low + high) / 2) * 1200 * 100) / 100;
+}
 
 // הדף מציג לכל "מספר משנה" רשימת שדות. מוציאים ממנה את היתרה, הריבית השנתית הכוללת וההחזר החודשי
 export function parseMortgageText(text: string): MortgageTrack[] {
@@ -33,18 +48,25 @@ export function parseMortgageText(text: string): MortgageTrack[] {
   blocks.forEach((block, index) => {
     const balance = pick(block, /יתרת\s*קרן[\s:₪]{0,20}([\d,]+\.?\d*)/);
     if (!(balance > 0)) return;
-    const rate =
+    let rate =
       pick(block, /ריבית\s*הכוללת\s*החזויה\s*(?:\(\d\))?[\s:]{0,20}([\d.]+)\s*%/) ||
-      pick(block, /שיעור\s*ריבית[^\d]{0,40}?([\d.]+)\s*%/);
+      pick(block, /שיעור\s*ריבית[^\d]{0,40}?([\d.]+)\s*%/) ||
+      pick(block, /ריבית[^\d%]{0,40}?([\d.]+)\s*%/) ||
+      pick(block, /([\d.]+)\s*%\s*ריבית/);
+    const months =
+      pick(block, /(?:תשלומים|חודשים)\s*(?:שנותרו|נותרים|לסיום)[\s:]{0,20}(\d+)/) ||
+      pick(block, /(?:שנותרו|נותרו)\s*(\d+)\s*(?:תשלומים|חודשים)/);
     const payment =
       pick(block, /(?:תשלום|החזר)\s*חודשי\s*(?:\([^)]*\))?[\s:₪]{0,20}([\d,]+\.?\d*)/) ||
       pick(block, /תשלום\s*אחרון\s*לחיוב\s*(?:\(\d\))?[\s:₪]{0,20}([\d,]+\.?\d*)/);
+    if (!rate && months) rate = solveAnnualRate(balance, payment, months);
     tracks.push({
       id: block.match(/^\s*(\d+)/)?.[1] ?? String(index + 1),
       balance,
       rate,
       payment,
       prime: /פריים/.test(block),
+      ...(months ? { months } : {}),
     });
   });
   return tracks;
