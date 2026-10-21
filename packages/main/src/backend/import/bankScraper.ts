@@ -83,7 +83,10 @@ export async function scrape(
   };
   options.preparePage = async (page) => {
     await page.evaluateOnNewDocument(CLOSE_POPUPS_SCRIPT);
-    if (companyId === 'visaCal') await page.evaluateOnNewDocument(DELAY_CAL_LOGIN_BUTTON_SCRIPT);
+    if (companyId === 'visaCal') {
+      await page.evaluateOnNewDocument(DELAY_CAL_LOGIN_BUTTON_SCRIPT);
+      await page.evaluateOnNewDocument(() => Object.defineProperty(navigator, 'webdriver', { get: () => undefined }));
+    }
     page.on('framenavigated', (frame) => {
       if (frame === page.mainFrame() && !assistedCompanies.has(companyId) && /perfdrive\.com|radware/i.test(frame.url())) {
         botBlockedUntil.set(companyId, Date.now() + BOT_BLOCK_COOLDOWN_MS);
@@ -101,7 +104,7 @@ export async function scrape(
             page.frames().map(async (frame) => {
               const items = await frame
                 .evaluate(() =>
-                  Array.from(document.querySelectorAll('input, button, [role="tab"], [id]'))
+                  Array.from(document.querySelectorAll('input, button, iframe, [role="tab"], a[id], [id^="cc"], [id*="ogin"]'))
                     .slice(0, 60)
                     .map((el) => `${el.tagName.toLowerCase()}#${el.id}.${el.getAttribute('formcontrolname') ?? el.getAttribute('name') ?? ''}:${(el.textContent ?? '').trim().slice(0, 25)}`)
                     .join(' ; '),
@@ -130,11 +133,14 @@ export async function scrape(
     }, 90_000);
   };
   let ownBrowser: Awaited<ReturnType<typeof puppeteer.launch>> | undefined;
-  if (companyId === 'pagi') {
+  if (companyId === 'pagi' || companyId === 'visaCal') {
+    // כאל מנטרל את כפתור הכניסה בדפדפן שמסומן כ"נשלט אוטומטית". מסירים את הסימון (דגל האוטומציה ו-navigator.webdriver)
+    const stealth = companyId === 'visaCal';
     ownBrowser = await puppeteer.launch({
       executablePath: chromePath,
       headless: !showBrowser,
-      args: options.args,
+      args: [...(options.args ?? []), ...(stealth ? ['--disable-blink-features=AutomationControlled'] : [])],
+      ignoreDefaultArgs: stealth ? ['--enable-automation'] : undefined,
       protocolTimeout: 600_000,
     });
     Object.assign(options, { browser: ownBrowser, skipCloseBrowser: true });
@@ -143,10 +149,16 @@ export async function scrape(
   scraper.onProgress((eventCompanyId: string, payload: { type: string }) => {
     emitProgressEvent(companyId, payload.type);
   });
-  const scrapeResult = await scraper.scrape(credentials);
+  let scrapeResult: Awaited<ReturnType<typeof scraper.scrape>>;
+  try {
+    scrapeResult = await scraper.scrape(credentials);
+  } catch (e) {
+    await ownBrowser?.close().catch(() => undefined);
+    throw e;
+  }
   if (ownBrowser) {
     // פאג"י חוסם כניסה שנייה, ולכן את המשכנתא קוראים עכשיו, באותו דפדפן שכבר מחובר
-    if (scrapeResult.success) await grabMortgagesFromLoggedInBrowser(ownBrowser, Math.max(timeout, 150_000));
+    if (scrapeResult.success && companyId === 'pagi') await grabMortgagesFromLoggedInBrowser(ownBrowser, Math.max(timeout, 150_000));
     await ownBrowser.close().catch(() => undefined);
   }
   return scrapeResult;

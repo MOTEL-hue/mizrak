@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import puppeteer, { type Browser, type Page } from 'puppeteer-core';
+import puppeteer, { type Browser, type Frame, type Page } from 'puppeteer-core';
 import { userDataPath } from '@/app-globals';
 import { getProxyArgs } from '@/backend/proxyConfig';
 import { notifyProblem } from '../../notify';
@@ -50,7 +50,26 @@ export function parseMortgageText(text: string): MortgageTrack[] {
   return tracks;
 }
 
-async function clickByText(page: Page, pattern: string) {
+// התוכן של פאג"י יכול להיות בתוך מסגרת (iframe) בתוך הפורטל, ולכן מחפשים בכל המסגרות
+async function frameWithText(page: Page, re: RegExp, timeoutMs: number): Promise<Frame | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    for (const frame of page.frames()) {
+      const text = await frame.evaluate(() => document.body?.innerText ?? '').catch(() => '');
+      if (re.test(text)) return frame;
+    }
+    await sleep(1000);
+  }
+  return null;
+}
+
+async function clickByText(page: Page | Frame, pattern: string) {
+  if ('frames' in page) {
+    for (const frame of page.frames()) {
+      if (await clickByText(frame, pattern)) return true;
+    }
+    return false;
+  }
   return page.evaluate((source) => {
     const re = new RegExp(source);
     // textContent (ולא innerText) כדי לא לחשב פריסה לאלפי רכיבים, וסינון לפי אורך לפני הבדיקה
@@ -73,8 +92,13 @@ async function closePopup(page: Page) {
 // טקסט הדף לבדיקה כשהמשיכה נכשלת. מספרים ארוכים (חשבון, הלוואה) מוסתרים
 async function saveDiagnostic(page?: Page) {
   try {
-    const text = (await page?.evaluate(() => `${location.href.split('?')[0]} | ${document.body.innerText}`)) ?? '';
-    fs.writeFileSync(path.join(userDataPath, 'pagi-mortgage-diagnostic.txt'), text.replace(/[\d-]{7,}/g, '###'));
+    const parts = await Promise.all(
+      (page?.frames() ?? []).map(async (frame) => {
+        const text = await frame.evaluate(() => document.body?.innerText ?? '').catch(() => '');
+        return `[${frame.url().split('?')[0]}] ${text.replace(/\s+/g, ' ').slice(0, 1500)}`;
+      }),
+    );
+    fs.writeFileSync(path.join(userDataPath, 'pagi-mortgage-diagnostic.txt'), parts.join('\n').replace(/[\d-]{7,}/g, '###'));
   } catch {
     // אבחון בלבד
   }
@@ -110,16 +134,15 @@ export async function extractMortgageTracks(page: Page, timeout: number): Promis
       await page.evaluate((hash) => {
         window.location.hash = hash;
       }, MORTGAGE_HASH);
-    const hasTracks = () => /מספר\s*משנה/.test(document.body.innerText);
-    const onDetails = await page
-      .waitForFunction(hasTracks, { timeout: 25_000 })
-      .then(() => true)
-      .catch(() => false);
+    const re = /מספר\s*משנה/;
+    let frame = await frameWithText(page, re, 25_000);
     // הכתובת פותחת לפעמים את דף "ריכוז משכנתאות", ולא את הפירוט. עוברים אליו דרך הקישור "לפירוט משכנתאות"
-    logAppEvent('MORTGAGE_NAV', { menuReached: !!reached, onDetails });
-    if (!onDetails) await clickByText(page, 'פירוט משכנתאות');
-    await page.waitForFunction(hasTracks, { timeout: Math.max(timeout, SLOW_PAGE_MS) });
-    await closePopup(page);
+    logAppEvent('MORTGAGE_NAV', { menuReached: !!reached, onDetails: !!frame, frames: page.frames().length });
+    if (!frame) {
+      await clickByText(page, 'פירוט משכנתאות');
+      frame = await frameWithText(page, re, Math.max(timeout, SLOW_PAGE_MS));
+    }
+    if (!frame) throw new Error('פאג"י: דף פירוט המשכנתאות לא נטען');
     // כל מסלול נטען רק אחרי לחיצה על החץ שלו, ולכן קוראים את הדף אחרי כל פתיחה ומאחדים לפי מספר משנה
     const found = new Map<string, MortgageTrack>();
     // כותרות המסלולים ("מספר הלוואה ... מספר משנה"): הרכיב הפנימי ביותר שמתאים. textContent כדי לא לחשב פריסה לכל הדף
@@ -130,22 +153,22 @@ export async function extractMortgageTracks(page: Page, timeout: number): Promis
       });
       const headers = all.filter((el) => !Array.from(el.children).some((c) => all.includes(c)));
     `;
-    const rows = await page.evaluate(`(() => { ${headersScript} return headers.length; })()`);
-    const openCount = () => page.evaluate(() => (document.body.innerText.match(/יתרת\s*קרן/g) ?? []).length);
+    const rows = await frame.evaluate(`(() => { ${headersScript} return headers.length; })()`);
+    const openCount = () => frame.evaluate(() => (document.body.innerText.match(/יתרת\s*קרן/g) ?? []).length);
     for (let i = 0; i < Math.max(Number(rows), 1); i += 1) {
       const before = await openCount();
-      await page.evaluate(`(() => { ${headersScript} headers[${i}]?.click(); })()`);
+      await frame.evaluate(`(() => { ${headersScript} headers[${i}]?.click(); })()`);
       await sleep(2000);
       // אם הלחיצה על השורה לא פתחה את המסלול, לוחצים על החץ שלה
       if ((await openCount()) <= before) {
-        await page.evaluate(`(() => { ${headersScript}
+        await frame.evaluate(`(() => { ${headersScript}
           const row = headers[${i}]; const box = row?.parentElement ?? row;
           const arrow = box?.querySelector('button, [class*="arrow"], [class*="chevron"], [class*="toggle"], [class*="expand"], i, svg');
           (arrow ?? row)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         })()`);
         await sleep(2000);
       }
-      parseMortgageText(await page.evaluate(() => document.body.innerText)).forEach((t) => found.set(t.id, t));
+      parseMortgageText(await frame.evaluate(() => document.body.innerText)).forEach((t) => found.set(t.id, t));
     }
     const tracks = Array.from(found.values());
     if (!tracks.length) throw new Error('פאג"י: לא נמצאו מסלולי משכנתא בדף');
