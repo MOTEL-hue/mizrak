@@ -38,7 +38,7 @@ async function describeConfig(): Promise<string> {
 async function mortgageDiagnostic(): Promise<string> {
   try {
     const text = await fs.promises.readFile(path.join(userDataPath, 'pagi-mortgage-diagnostic.txt'), 'utf8');
-    return text.replace(/\s+/g, ' ').slice(0, 3000);
+    return text.replace(/\s+/g, ' ').slice(0, 9000);
   } catch {
     return '(אין)';
   }

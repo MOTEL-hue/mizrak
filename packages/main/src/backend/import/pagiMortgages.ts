@@ -234,6 +234,13 @@ async function extractFromDownload(page: Page): Promise<MortgageTrack[]> {
     logAppEvent('MORTGAGE_DOWNLOAD', { name: path.extname(file), bytes: fs.statSync(full).size });
     const text = fs.readFileSync(full, 'utf8').replace(/<[^>]+>/g, '\n');
     const tracks = parseMortgageText(text);
+    // לאבחון: הטקסט של הקובץ (בלי מספרים ארוכים) והערכים שנקראו, כדי לבדוק שהחישוב תואם לבנק
+    try {
+      const flat = text.split('\n').map((l) => l.trim()).filter(Boolean).join('\n').replace(/[\d-]{7,}/g, '###');
+      fs.writeFileSync(path.join(userDataPath, 'pagi-mortgage-diagnostic.txt'), `${JSON.stringify(tracks)}\n${flat.slice(0, 20000)}`);
+    } catch {
+      // האבחון לא חשוב מספיק כדי להפיל את הקריאה
+    }
     if (!tracks.length) throw new Error('הקובץ שירד בפורמט שלא נקרא עדיין');
     return tracks;
   } finally {
