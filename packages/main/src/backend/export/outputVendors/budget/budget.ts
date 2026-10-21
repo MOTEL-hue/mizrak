@@ -1,3 +1,5 @@
+import { getBalances } from '../../../import/balances';
+import { displayName } from '../../../bridgeFormat';
 import {
   OutputVendorName,
   type EnrichedTransaction,
@@ -69,6 +71,26 @@ const exportTransactions: ExportTransactionsFunction = async ({ transactionsToCr
       throw new Error(response.status === 401 ? 'מפתח הגישה לתקציב לא תקין' : `שליחה לתקציב נכשלה (${response.status})`);
     }
     added += ((await response.json()) as { added?: number }).added ?? 0;
+  }
+  // היתרה המדויקת של חשבונות הבנק, כדי שהתקציב יציג את מה שיש בפועל
+  const balances = getBalances().map((b) => ({
+    key: b.key,
+    last4: b.accountNumber,
+    name: displayName(b.key),
+    balance: b.balance,
+  }));
+  if (balances.length) {
+    try {
+      const response = await fetch(url.replace(/import$/, 'balances'), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ accounts: balances }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      logAppEvent('BUDGET_BALANCES_SENT', { accounts: balances.length, status: response.status });
+    } catch (e) {
+      logAppEvent('BUDGET_BALANCES_FAILED', { errorMessage: (e as Error).message });
+    }
   }
   logAppEvent('BUDGET_EXPORT_DONE', { sent: transactionsToCreate.length, added });
   return { exportedTransactionsNum: added };

@@ -1,5 +1,6 @@
 import { pullMortgagesInApp, reportAppRun } from '@/backend/budgetBridge';
 import { loadMortgages } from '@/backend/import/mortgageStore';
+import { clearResume, loadResumeInfo } from '@/backend/import/resumeStore';
 import { App } from '@/app-globals';
 import { scrapeAndUpdateOutputVendors, setPeriodicScrapingIfNeeded, stopPeriodicScraping } from '@/backend';
 import { type Credentials } from '@/backend/commonTypes';
@@ -47,6 +48,7 @@ const functions: Record<string, Listener> = {
   },
   getLocalTransactions: async () => loadWithSeed(await getConfig()),
   getLocalMortgages: loadMortgages,
+  getResumeInfo: loadResumeInfo,
   isBrowserInstalled: isBrowserInstalledHandler,
   stopPeriodicScraping,
   getAppInfo: async () => {
@@ -78,7 +80,8 @@ export const registerHandlers = () => {
   });
 
   ipcMain.removeAllListeners('scrape');
-  ipcMain.on('scrape', async (event: IpcMainEvent) => {
+  ipcMain.on('scrape', async (event: IpcMainEvent, mode?: string) => {
+    if (mode === 'all') await clearResume();
     const config = await getConfig();
     const eventSubscriber = new BudgetTrackingEventEmitter();
     eventSubscriber.onAny((eventName, eventData) => {

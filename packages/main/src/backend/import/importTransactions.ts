@@ -26,6 +26,7 @@ import {
 import { calculateTransactionHash } from '../transactions/transactions';
 import getChrome from './downloadChromium';
 import { loadResume, saveResume } from './resumeStore';
+import { recordBalances } from './balances';
 import { BOT_BLOCK_MESSAGE, assistedCompanies, botBlockedUntil } from './bankScraper';
 import { notifyProblem } from '../../notify';
 import { createOperationLogger, type OperationLogger } from '/@/logging/operationLogger';
@@ -283,6 +284,7 @@ async function fetchTransactions(
       throw new Error(`${scrapeResult.errorType}: ${scrapeResult.errorMessage}`);
     }
 
+    recordBalances(account.key, scrapeResult.accounts);
     const transactions = await postProcessTransactions(account, scrapeResult);
 
     // Calculate transaction date range for logging

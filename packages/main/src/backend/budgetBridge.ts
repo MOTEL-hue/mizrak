@@ -5,6 +5,7 @@ import { budgetBase } from '@/backend/export/outputVendors/budget/budget';
 import { toHebrewError } from '@/backend/import/hebrewErrors';
 import { scrapePagiMortgages } from '@/backend/import/pagiMortgages';
 import { saveMortgages } from '@/backend/import/mortgageStore';
+import { clearResume } from '@/backend/import/resumeStore';
 import getChrome from '@/backend/import/downloadChromium';
 import { userDataPath } from '@/app-globals';
 import { notifyProblem } from '../notify';
@@ -95,16 +96,19 @@ export async function budgetTick() {
   try {
     const poll = await call(base, token, 'sync-poll');
     if (!poll.ok) return;
-    const { pending, due, rates_due: ratesDue } = (await poll.json()) as {
+    const { pending, due, rates_due: ratesDue, mode } = (await poll.json()) as {
       pending?: boolean;
       due?: boolean;
       rates_due?: boolean;
+      mode?: string;
     };
     if (ratesDue) await pushRates(base, token);
     if (!pending && !due) return;
 
     busy = true;
-    logAppEvent('BUDGET_SYNC_START', { reason: pending ? 'manual' : 'auto' });
+    // "סנכרן הכל מחדש": מוחקים את מה שנשמר מהסריקה החלקית, אחרת רק חשבונות שלא הסתיימו נסרקים שוב
+    if (pending && mode === 'all') await clearResume();
+    logAppEvent('BUDGET_SYNC_START', { reason: pending ? 'manual' : 'auto', mode: mode || 'failed-only' });
     await call(base, token, 'sync-report', { status: 'running' });
 
     const failures: { company: string; message: string }[] = [];

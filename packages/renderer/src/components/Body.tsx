@@ -1,4 +1,4 @@
-import { scrape } from '#preload';
+import { getResumeInfo, scrape } from '#preload';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useState } from 'react';
 import { Button, Container, Image, Modal, Stack } from 'react-bootstrap';
@@ -28,10 +28,24 @@ import Exporters from './exporters/Exporters';
 
 const Body = () => {
   const configStore = useConfigStore();
-  const cleanAndScrape = useCallback(() => {
-    configStore.clearScrapingStatus();
-    return scrape(configStore.handleScrapingEvent.bind(configStore));
-  }, [configStore]);
+  const [askScrapeMode, setAskScrapeMode] = useState(false);
+  const runScrape = useCallback(
+    (mode?: 'all') => {
+      setAskScrapeMode(false);
+      configStore.clearScrapingStatus();
+      return scrape(configStore.handleScrapingEvent.bind(configStore), mode);
+    },
+    [configStore],
+  );
+  // אם בשעה האחרונה כבר הסתיימו חלק מהחשבונות, שואלים אם לסרוק רק את מה שלא הצליח (כדי לא להעמיס על האתרים ולא להיחסם)
+  const cleanAndScrape = useCallback(async () => {
+    const info = await getResumeInfo().catch(() => null);
+    if (info && info.count > 0) {
+      setAskScrapeMode(true);
+      return undefined;
+    }
+    return runScrape();
+  }, [runScrape]);
 
   const [modalStatus, setModalStatus] = useState<ModalStatus>(ModalStatus.HIDDEN);
 
@@ -149,6 +163,23 @@ const Body = () => {
         />
         <CheckForUpdates />
       </Container>
+    
+      <Modal show={askScrapeMode} onHide={() => setAskScrapeMode(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>איך לסרוק?</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p>בשעה האחרונה כבר הסתיימו חלק מהחשבונות. כדי לא להעמיס על אתרי הבנקים (וכך לא להיחסם), אפשר לסרוק רק את מה שלא הצליח או לא הסתיים.</p>
+          <Stack direction="horizontal" gap={2} className="flex-wrap">
+            <Button variant="dark" onClick={() => runScrape()}>
+              רק מה שלא הצליח
+            </Button>
+            <Button variant="outline-dark" onClick={() => runScrape('all')}>
+              סרוק הכל מחדש
+            </Button>
+          </Stack>
+        </Modal.Body>
+      </Modal>
     </Container>
   );
 };

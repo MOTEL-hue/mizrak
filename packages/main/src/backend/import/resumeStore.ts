@@ -28,3 +28,14 @@ export async function saveResume(startDate: Date, accounts: Record<string, Enric
 export async function clearResume() {
   await fs.rm(filePath(), { force: true });
 }
+
+// האם בשעה האחרונה כבר הסתיימו חלק מהחשבונות (סריקה חלקית). משמש לשאלה "רק מה שלא הצליח או הכל"
+export async function loadResumeInfo(): Promise<{ count: number; savedAt: number } | null> {
+  try {
+    const data = JSON.parse(await fs.readFile(filePath(), 'utf8')) as ResumeFile;
+    const count = Object.keys(data.accounts ?? {}).length;
+    return count > 0 && Date.now() - data.savedAt < 60 * 60 * 1000 ? { count, savedAt: data.savedAt } : null;
+  } catch {
+    return null;
+  }
+}
