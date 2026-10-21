@@ -86,6 +86,8 @@ export interface AccountToScrapeConfig {
   name: string;
   loginFields: ScraperCredentials;
   active?: boolean;
+  // כשהתוכנה מזהה שהחשבון שייך לבנק אחר באותה קבוצה (הבינלאומי / פאג"י), המזהה של התנועות נשאר לפי הבנק המקורי, כדי שלא ייווצרו כפילויות
+  legacyHashKey?: CompanyTypes;
 }
 
 export interface EnrichedTransaction extends Transaction {

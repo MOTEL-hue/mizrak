@@ -53,7 +53,7 @@ async function pushMortgages(
   config: Awaited<ReturnType<typeof getConfig>>,
   tracker: ProgressTracker,
 ) {
-  const account = config.scraping.accountsToScrape.find((a) => a.key === 'pagi' && a.active !== false);
+  const account = config.scraping.accountsToScrape.find((a) => (a.key === 'pagi' || a.key === 'beinleumi') && a.active !== false);
   if (!account) return;
   try {
     await call(base, token, 'sync-report', { status: 'progress', ...tracker.snapshot(), text: 'פאג"י: מושך פירוט משכנתאות' });
@@ -68,6 +68,8 @@ async function pushMortgages(
     logAppEvent('BUDGET_MORTGAGE_PUSHED', { status: result.status, tracks: tracks.length });
   } catch (e) {
     logAppEvent('BUDGET_MORTGAGE_FAILED', { errorMessage: (e as Error).message });
+    // חשבון שמוגדר כהבינלאומי אולי לא שייך לפאג"י, ולכן שם לא מציקים בהודעה
+    if (account.key === 'beinleumi') return;
     notifyProblem('מזרק: משיכת המשכנתא נכשלה', toHebrewError((e as Error).message));
   }
 }

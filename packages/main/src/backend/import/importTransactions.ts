@@ -7,9 +7,10 @@ import {
   type FinancialAccountDetails,
   type ScraperScrapingResult,
 } from '@/backend/commonTypes';
-import { getConfig } from '@/backend/configManager/configManager';
+import { getConfig, updateConfig } from '@/backend/configManager/configManager';
 import * as bankScraper from '@/backend/import/bankScraper';
 import Bottleneck from 'bottleneck';
+import { type CompanyTypes } from 'israeli-bank-scrapers-core';
 import { type Transaction } from 'israeli-bank-scrapers-core/lib/transactions';
 import _ from 'lodash';
 import moment from 'moment';
@@ -38,6 +39,7 @@ const THROTTLED_COMPANIES = ['isracard', 'amex'];
 const THROTTLE_MIN_MS = 5000;
 const THROTTLE_MAX_MS = 15000;
 const RETRY_WAIT_MS = 60000;
+const SAME_GROUP: Record<string, string | undefined> = { beinleumi: 'pagi', pagi: 'beinleumi' };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const TRANSACTION_STATUS_COMPLETED = 'completed';
 
@@ -87,9 +89,9 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
     const cached = done[accountToScrape.id];
     if (cached) return { id: accountToScrape.id, transactions: cached };
     const transactions = await limiter.schedule(async () => {
-      const scrapeOnce = (showBrowser = scrapingConfig.showBrowser) =>
+      const scrapeOnce = (showBrowser = scrapingConfig.showBrowser, account = accountToScrape) =>
         fetchTransactions(
-          accountToScrape,
+          account,
           startDate,
           showBrowser,
           eventPublisher,
@@ -97,6 +99,31 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
           scrapingConfig.timeout,
           log,
         );
+      // הבינלאומי ופאג"י הם אותה קבוצה עם אתרים שונים: אם הכניסה נדחתה, מנסים את האתר השני ואם הצליח, החשבון מתעדכן לבנק הנכון
+      const switchBank = async (original: Error) => {
+        const other = SAME_GROUP[accountToScrape.key] as CompanyTypes;
+        log.info('BANK_DETECT_TRY', { from: accountToScrape.key, to: other });
+        const candidate = { ...accountToScrape, key: other, legacyHashKey: accountToScrape.legacyHashKey ?? accountToScrape.key };
+        let result;
+        try {
+          result = await scrapeOnce(scrapingConfig.showBrowser, candidate);
+        } catch {
+          throw original;
+        }
+        try {
+          const current = await getConfig(configFilePath);
+          const entry = current.scraping.accountsToScrape.find((a) => a.id === accountToScrape.id);
+          if (entry) {
+            entry.legacyHashKey = candidate.legacyHashKey;
+            entry.key = other;
+            await updateConfig(configFilePath, current);
+          }
+          log.info('BANK_DETECTED', { from: accountToScrape.key, to: other });
+        } catch (e) {
+          log.info('BANK_DETECT_SAVE_FAILED', { errorMessage: (e as Error).message });
+        }
+        return result;
+      };
       // אתרי בנקים לפעמים מציגים מסך הודעה או נטענים לאט, ובניסיון שני אחרי דקה הכניסה בדרך כלל עוברת
       // האתר דרש אימות אנושי: פותחים חלון גלוי, ממתינים שהמשתמש יאשר, והסריקה ממשיכה לבד
       const scrapeAssisted = async () => {
@@ -122,6 +149,7 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
           return await scrapeOnce();
         } catch (e) {
           if ((botBlockedUntil.get(accountToScrape.key) ?? 0) > Date.now()) return scrapeAssisted();
+          if (/INVALID_PASSWORD/i.test((e as Error).message ?? '') && SAME_GROUP[accountToScrape.key]) return switchBank(e as Error);
           if (!/Waiting for selector|Navigation timeout|net::ERR/i.test((e as Error).message ?? '')) throw e;
           log.info('SCRAPE_RETRY', { importer: accountToScrape.key });
           await sleep(RETRY_WAIT_MS);
@@ -309,7 +337,7 @@ async function postProcessTransactions(
   if (scrapeResult.accounts) {
     let transactions = scrapeResult.accounts.flatMap((transactionAccount) => {
       return transactionAccount.txns.map((transaction) =>
-        enrichTransaction(transaction, accountToScrape.key, transactionAccount.accountNumber),
+        enrichTransaction(transaction, accountToScrape.legacyHashKey ?? accountToScrape.key, transactionAccount.accountNumber),
       );
     });
 
