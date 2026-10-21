@@ -15,6 +15,9 @@ type EmitProgressEventFunction = (eventCompanyId: string, message: string) => Pr
 
 // אתרי הבנקים מציגים חלונות הודעה (פרסומות, אישורים) מיד אחרי הכניסה, והם חוסמים את הדף.
 // הסקריפט סוגר אותם לבד: לוחץ על כפתור סגירה (X) בתוך חלון קופץ גלוי, ולא נוגע בקישורים אחרים.
+// קבוצת הבינלאומי ופאג"י נטענת לאט, ולכן ממתינים לכל כפתור עד חמש דקות
+const SLOW_COMPANIES = ['beinleumi', 'pagi', 'massad', 'otsarHahayal'];
+const SLOW_TIMEOUT_MS = 300_000;
 const CLOSE_POPUPS_SCRIPT = `
 (() => {
   const visible = (el) => !!(el && (el.offsetWidth || el.offsetHeight) && getComputedStyle(el).visibility !== 'hidden');
@@ -49,7 +52,7 @@ export async function scrape(
     showBrowser, // shows the browser while scraping, good for debugging (default false)
     verbose: false, // include more debug info about in the output
     executablePath: chromePath,
-    defaultTimeout: timeout,
+    defaultTimeout: SLOW_COMPANIES.includes(companyId) ? Math.max(timeout, SLOW_TIMEOUT_MS) : timeout,
     args: proxyArgs, // Add proxy configuration to browser args
   };
   options.preparePage = async (page) => {
