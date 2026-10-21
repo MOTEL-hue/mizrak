@@ -34,6 +34,16 @@ async function describeConfig(): Promise<string> {
   }
 }
 
+// מה שדף המשכנתאות של פאג"י הציג כשהמשיכה נכשלה (מספרים ארוכים מוסתרים)
+async function mortgageDiagnostic(): Promise<string> {
+  try {
+    const text = await fs.promises.readFile(path.join(userDataPath, 'pagi-mortgage-diagnostic.txt'), 'utf8');
+    return text.replace(/\s+/g, ' ').slice(0, 3000);
+  } catch {
+    return '(אין)';
+  }
+}
+
 export async function buildDiagnosticsReport(): Promise<string> {
   let logs = '';
   try {
@@ -58,6 +68,9 @@ export async function buildDiagnosticsReport(): Promise<string> {
     '',
     '== בעיות שזוהרו בלוג ==',
     ...(explanations.length ? explanations : ['לא זוהתה בעיה מוכרת.']),
+    '',
+    '== מה דף המשכנתאות הציג בכשל האחרון ==',
+    await mortgageDiagnostic(),
     '',
     `== הלוג (${MAX_LOG_LINES} השורות האחרונות) ==`,
     logs,

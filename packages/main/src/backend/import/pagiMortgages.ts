@@ -4,6 +4,7 @@ import puppeteer, { type Page } from 'puppeteer-core';
 import { userDataPath } from '@/app-globals';
 import { getProxyArgs } from '@/backend/proxyConfig';
 import { notifyProblem } from '../../notify';
+import { logAppEvent } from '/@/logging/operationLogger';
 
 // משיכת פירוט המשכנתאות מאתר פאג"י (הספרייה של הסורקים לא תומכת בהלוואות ומשכנתאות)
 const PAGI_LOGIN_URL =
@@ -71,7 +72,7 @@ async function closePopup(page: Page) {
 // טקסט הדף לבדיקה כשהמשיכה נכשלת. מספרים ארוכים (חשבון, הלוואה) מוסתרים
 async function saveDiagnostic(page?: Page) {
   try {
-    const text = (await page?.evaluate(() => document.body.innerText)) ?? '';
+    const text = (await page?.evaluate(() => `${location.href.split('?')[0]} | ${document.body.innerText}`)) ?? '';
     fs.writeFileSync(path.join(userDataPath, 'pagi-mortgage-diagnostic.txt'), text.replace(/[\d-]{7,}/g, '###'));
   } catch {
     // אבחון בלבד
@@ -143,6 +144,7 @@ async function scrapeMortgagesOnce(params: MortgageParams): Promise<MortgageTrac
       .then(() => true)
       .catch(() => false);
     // הכתובת פותחת לפעמים את דף "ריכוז משכנתאות", ולא את הפירוט. עוברים אליו דרך הקישור "לפירוט משכנתאות"
+    logAppEvent('MORTGAGE_NAV', { menuReached: !!reached, onDetails });
     if (!onDetails) await clickByText(page, 'פירוט משכנתאות');
     await page.waitForFunction(hasTracks, { timeout: Math.max(params.timeout, SLOW_PAGE_MS) });
     await closePopup(page);

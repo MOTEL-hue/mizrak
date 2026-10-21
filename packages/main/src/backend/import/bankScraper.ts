@@ -64,7 +64,7 @@ export async function scrape(
     executablePath: chromePath,
     defaultTimeout: [...SLOW_COMPANIES, 'visaCal', 'max'].includes(companyId) ? Math.max(timeout, SLOW_TIMEOUT_MS) : timeout,
     // פרופיל קבוע לקבוצת הבינלאומי: אחרי אימות ידני אחד האתר זוכר את הדפדפן ופחות חוסם
-    args: [...SLOW_COMPANIES, 'visaCal'].includes(companyId)
+    args: SLOW_COMPANIES.includes(companyId)
       ? [...proxyArgs, `--user-data-dir=${path.join(userDataPath, 'browser-profiles', companyId)}`]
       : proxyArgs,
   };
