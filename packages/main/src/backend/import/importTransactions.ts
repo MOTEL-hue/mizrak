@@ -35,6 +35,7 @@ const DEFAULT_MAX_CONCURRENCY = 1;
 const THROTTLED_COMPANIES = ['isracard', 'amex'];
 const THROTTLE_MIN_MS = 5000;
 const THROTTLE_MAX_MS = 15000;
+const RETRY_WAIT_MS = 60000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const TRANSACTION_STATUS_COMPLETED = 'completed';
 
@@ -84,7 +85,7 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
     const cached = done[accountToScrape.id];
     if (cached) return { id: accountToScrape.id, transactions: cached };
     const transactions = await limiter.schedule(async () => {
-      const scrape = () =>
+      const scrapeOnce = () =>
         fetchTransactions(
           accountToScrape,
           startDate,
@@ -94,6 +95,17 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
           scrapingConfig.timeout,
           log,
         );
+      // אתרי בנקים לפעמים מציגים מסך הודעה או נטענים לאט, ובניסיון שני אחרי דקה הכניסה בדרך כלל עוברת
+      const scrape = async () => {
+        try {
+          return await scrapeOnce();
+        } catch (e) {
+          if (!/Waiting for selector|Navigation timeout|net::ERR/i.test((e as Error).message ?? '')) throw e;
+          log.info('SCRAPE_RETRY', { importer: accountToScrape.key });
+          await sleep(RETRY_WAIT_MS);
+          return scrapeOnce();
+        }
+      };
       if (!THROTTLED_COMPANIES.includes(accountToScrape.key)) return scrape();
       // חשבונות של החברות החסומות רצים אחד אחרי השני, עם המתנה אקראית לפני כל אחד
       return throttledLimiter.schedule(async () => {
