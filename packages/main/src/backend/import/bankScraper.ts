@@ -3,6 +3,12 @@ import { createScraper, type ScraperOptions } from 'israeli-bank-scrapers-core';
 import { getProxyArgs } from '@/backend/proxyConfig';
 import { logAppEvent } from '/@/logging/operationLogger';
 
+// חברות שהאתר שלהן זיהה פעילות אוטומטית ודרש אימות אנושי (Radware): זמן סיום ההמתנה לפני ניסיון נוסף
+export const botBlockedUntil = new Map<string, number>();
+const BOT_BLOCK_COOLDOWN_MS = 3 * 60 * 60 * 1000;
+export const BOT_BLOCK_MESSAGE =
+  'האתר זיהה פעילות אוטומטית ודרש אימות אנושי (קפצ\'ה), ולכן הכניסה נחסמה. ריצות רצופות מחמירות את החסימה. כדאי לחכות כמה שעות, ואז לנסות שוב. אפשר גם להפעיל "הצג דפדפן" בהגדרות ולאשר ידנית.';
+
 interface ScrapeParameters {
   companyId: AccountToScrapeConfig['key'];
   credentials: AccountToScrapeConfig['loginFields'];
@@ -57,6 +63,14 @@ export async function scrape(
   };
   options.preparePage = async (page) => {
     await page.evaluateOnNewDocument(CLOSE_POPUPS_SCRIPT);
+    page.on('framenavigated', (frame) => {
+      if (frame === page.mainFrame() && /perfdrive\.com|radware/i.test(frame.url())) {
+        botBlockedUntil.set(companyId, Date.now() + BOT_BLOCK_COOLDOWN_MS);
+        logAppEvent('BOT_CHALLENGE_DETECTED', { company: companyId });
+        // אין טעם להמתין חמש דקות לכפתור שלא יופיע
+        setTimeout(() => page.close().catch(() => undefined), 3000);
+      }
+    });
     // צילום טקסט של הדף אחרי 90 שניות, כדי לדעת מה האתר הציג כשהכניסה נתקעת (בלי סיסמאות, רק הטקסט הגלוי)
     setTimeout(async () => {
       try {

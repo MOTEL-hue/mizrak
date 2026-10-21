@@ -122,7 +122,9 @@ export async function budgetTick() {
       await scrapeAndUpdateOutputVendors(config, events);
       await pushMortgages(base, token, config, tracker);
       const summary = summarizeFailures(failures);
-      await call(base, token, 'sync-report', { status: summary ? 'error' : 'ok', message: summary });
+      // כשחלק מהחשבונות נכשלו, מה שהצליח כבר נשלח לתקציב, ולכן הדיווח הוא "חלקי" ולא כשל מלא
+      const allFailed = failures.length > 0 && failures.length >= config.scraping.accountsToScrape.filter((a) => a.active !== false).length;
+      await call(base, token, 'sync-report', { status: summary ? (allFailed ? 'error' : 'partial') : 'ok', message: summary });
       if (summary) notifyProblem('מזרק: הסנכרון נכשל בחלק מהחשבונות', `${summary}. לפרטים ולמה לעשות: פתח את מזרק ← עזרה והסברים.`);
       logAppEvent('BUDGET_SYNC_DONE', { failed: failures.length });
     } catch (e) {

@@ -25,6 +25,7 @@ import {
 import { calculateTransactionHash } from '../transactions/transactions';
 import getChrome from './downloadChromium';
 import { loadResume, saveResume } from './resumeStore';
+import { BOT_BLOCK_MESSAGE, botBlockedUntil } from './bankScraper';
 import { createOperationLogger, type OperationLogger } from '/@/logging/operationLogger';
 
 type ScrapingConfig = Config['scraping'];
@@ -97,9 +98,11 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
         );
       // אתרי בנקים לפעמים מציגים מסך הודעה או נטענים לאט, ובניסיון שני אחרי דקה הכניסה בדרך כלל עוברת
       const scrape = async () => {
+        if ((botBlockedUntil.get(accountToScrape.key) ?? 0) > Date.now()) throw new Error(BOT_BLOCK_MESSAGE);
         try {
           return await scrapeOnce();
         } catch (e) {
+          if ((botBlockedUntil.get(accountToScrape.key) ?? 0) > Date.now()) throw new Error(BOT_BLOCK_MESSAGE);
           if (!/Waiting for selector|Navigation timeout|net::ERR/i.test((e as Error).message ?? '')) throw e;
           log.info('SCRAPE_RETRY', { importer: accountToScrape.key });
           await sleep(RETRY_WAIT_MS);
