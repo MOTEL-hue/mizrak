@@ -57,8 +57,15 @@ async function pushMortgages(
 ): Promise<string | null> {
   const account = config.scraping.accountsToScrape.find((a) => (a.key === 'pagi' || a.key === 'beinleumi') && a.active !== false);
   if (!account) return null;
+  const started = Date.now();
+  const report = () => {
+    const seconds = Math.round((Date.now() - started) / 1000);
+    tracker.setExtra(`פאג"י: מושך פירוט משכנתאות (${seconds} שניות)`, Math.min(98, 92 + Math.floor(seconds / 30)));
+    call(base, token, 'sync-report', { status: 'progress', ...tracker.snapshot() }).catch(() => undefined);
+  };
+  report();
+  const heartbeat = setInterval(report, 8000);
   try {
-    await call(base, token, 'sync-report', { status: 'progress', ...tracker.snapshot(), text: 'פאג"י: מושך פירוט משכנתאות' });
     const chromePath = config.scraping.chromiumPath || (await getChrome(userDataPath, () => undefined));
     const tracks = await scrapePagiMortgages({
       credentials: account.loginFields as Record<string, string>,
@@ -76,6 +83,9 @@ async function pushMortgages(
     const message = toHebrewError((e as Error).message);
     notifyProblem('מזרק: משיכת המשכנתא נכשלה', message);
     return message;
+  } finally {
+    clearInterval(heartbeat);
+    tracker.setExtra(null);
   }
 }
 

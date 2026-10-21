@@ -51,10 +51,13 @@ export function parseMortgageText(text: string): MortgageTrack[] {
 async function clickByText(page: Page, pattern: string) {
   return page.evaluate((source) => {
     const re = new RegExp(source);
-    const candidates = Array.from(document.querySelectorAll<HTMLElement>('a, button, li, span, div'));
-    const hit = candidates
-      .filter((el) => re.test((el.innerText || '').trim()) && (el.innerText || '').trim().length < 40)
-      .sort((a, b) => a.innerText.length - b.innerText.length)[0];
+    // textContent (ולא innerText) כדי לא לחשב פריסה לאלפי רכיבים, וסינון לפי אורך לפני הבדיקה
+    const hit = Array.from(document.querySelectorAll<HTMLElement>('a, button, li, span, div'))
+      .filter((el) => {
+        const text = el.textContent ?? '';
+        return text.length < 40 && re.test(text.trim());
+      })
+      .sort((a, b) => (a.textContent ?? '').length - (b.textContent ?? '').length)[0];
     hit?.click();
     return !!hit;
   }, pattern);
@@ -115,6 +118,7 @@ async function scrapeMortgagesOnce(params: MortgageParams): Promise<MortgageTrac
   const browser = await puppeteer.launch({
     executablePath: params.chromePath,
     headless: !params.showBrowser,
+    protocolTimeout: 600_000,
     args: [...getProxyArgs(), `--user-data-dir=${path.join(userDataPath, 'browser-profiles', params.profileKey ?? 'pagi')}`],
   });
   let page: Page | undefined;
@@ -124,9 +128,11 @@ async function scrapeMortgagesOnce(params: MortgageParams): Promise<MortgageTrac
     await login(page, params.credentials, params.timeout);
     await sleep(5000);
     await closePopup(page);
+    // התפריט: הלוואות ומשכנתאות ← משכנתאות (נפתח תת-תפריט) ← פירוט משכנתאות
     const reached =
       (await clickByText(page, '^(ה)?הלוואות (ו)?(ה)?משכנתאות$')) &&
-      (await sleep(1500), await clickByText(page, '^פירוט משכנתאות$'));
+      (await sleep(1500), await clickByText(page, '^משכנתאות$')) &&
+      (await sleep(1200), await clickByText(page, '^פירוט משכנתאות$'));
     if (!reached)
       await page.evaluate((hash) => {
         window.location.hash = hash;
@@ -142,20 +148,29 @@ async function scrapeMortgagesOnce(params: MortgageParams): Promise<MortgageTrac
     await closePopup(page);
     // כל מסלול נטען רק אחרי לחיצה על החץ שלו, ולכן קוראים את הדף אחרי כל פתיחה ומאחדים לפי מספר משנה
     const found = new Map<string, MortgageTrack>();
-    const rows = await page.evaluate(
-      () =>
-        Array.from(document.querySelectorAll<HTMLElement>('div, li, tr')).filter(
-          (el) => /^מספר\s*הלוואה/.test(el.innerText.trim()) && el.innerText.length < 120,
-        ).length,
-    );
-    for (let i = 0; i < Math.max(rows, 1); i += 1) {
-      await page.evaluate((index) => {
-        const headers = Array.from(document.querySelectorAll<HTMLElement>('div, li, tr')).filter(
-          (el) => /^מספר\s*הלוואה/.test(el.innerText.trim()) && el.innerText.length < 120,
-        );
-        headers[index]?.click();
-      }, i);
+    // כותרות המסלולים ("מספר הלוואה ... מספר משנה"): הרכיב הפנימי ביותר שמתאים. textContent כדי לא לחשב פריסה לכל הדף
+    const headersScript = `
+      const all = Array.from(document.querySelectorAll('div, li, tr')).filter((el) => {
+        const t = el.textContent || '';
+        return t.length < 120 && /^\\s*מספר\\s*הלוואה/.test(t);
+      });
+      const headers = all.filter((el) => !Array.from(el.children).some((c) => all.includes(c)));
+    `;
+    const rows = await page.evaluate(`(() => { ${headersScript} return headers.length; })()`);
+    const openCount = () => page.evaluate(() => (document.body.innerText.match(/יתרת\s*קרן/g) ?? []).length);
+    for (let i = 0; i < Math.max(Number(rows), 1); i += 1) {
+      const before = await openCount();
+      await page.evaluate(`(() => { ${headersScript} headers[${i}]?.click(); })()`);
       await sleep(2000);
+      // אם הלחיצה על השורה לא פתחה את המסלול, לוחצים על החץ שלה
+      if ((await openCount()) <= before) {
+        await page.evaluate(`(() => { ${headersScript}
+          const row = headers[${i}]; const box = row?.parentElement ?? row;
+          const arrow = box?.querySelector('button, [class*="arrow"], [class*="chevron"], [class*="toggle"], [class*="expand"], i, svg');
+          (arrow ?? row)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        })()`);
+        await sleep(2000);
+      }
       parseMortgageText(await page.evaluate(() => document.body.innerText)).forEach((t) => found.set(t.id, t));
     }
     const tracks = Array.from(found.values());

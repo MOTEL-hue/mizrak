@@ -40,6 +40,8 @@ export class ProgressTracker {
 
   private finished = false;
 
+  private extra: { text: string; percent: number } | null = null;
+
   constructor(accountKeys: string[]) {
     this.steps = accountKeys.map((key) => ({ name: displayName(key), status: 'waiting' as StepStatus, detail: '' }));
     this.fractions = accountKeys.map(() => 0);
@@ -90,7 +92,15 @@ export class ProgressTracker {
     }
   }
 
+  // שלב נוסף אחרי הסריקה (משיכת משכנתא): מציג טקסט ואחוזים משלו, במקום "הסתיים"
+  setExtra(text: string | null, percent = 92) {
+    this.extra = text ? { text, percent } : null;
+  }
+
   snapshot(): ProgressSnapshot {
+    if (this.extra) {
+      return { percent: this.extra.percent, text: this.extra.text, steps: this.steps.map((s) => ({ ...s })) };
+    }
     const total = Math.max(1, this.steps.length);
     const importPart = (this.fractions.reduce((a, b) => a + b, 0) / total) * IMPORT_SHARE;
     let percent = importPart;
