@@ -1,6 +1,7 @@
 import { type AccountToScrapeConfig } from '@/backend/commonTypes';
 import { createScraper, type ScraperOptions } from 'israeli-bank-scrapers-core';
 import { getProxyArgs } from '@/backend/proxyConfig';
+import { logAppEvent } from '/@/logging/operationLogger';
 
 interface ScrapeParameters {
   companyId: AccountToScrapeConfig['key'];
@@ -53,6 +54,18 @@ export async function scrape(
   };
   options.preparePage = async (page) => {
     await page.evaluateOnNewDocument(CLOSE_POPUPS_SCRIPT);
+    // צילום טקסט של הדף אחרי 90 שניות, כדי לדעת מה האתר הציג כשהכניסה נתקעת (בלי סיסמאות, רק הטקסט הגלוי)
+    setTimeout(async () => {
+      try {
+        if (page.isClosed()) return;
+        const snap = await page.evaluate(
+          () => `${location.href} | ${document.title} | ${(document.body?.innerText ?? '').replace(/\s+/g, ' ').slice(0, 400)}`,
+        );
+        logAppEvent('PAGE_SNAPSHOT_90S', { company: companyId, snapshot: snap });
+      } catch {
+        // הדף כבר נסגר
+      }
+    }, 90_000);
   };
   const scraper = createScraper(options);
   scraper.onProgress((eventCompanyId: string, payload: { type: string }) => {
