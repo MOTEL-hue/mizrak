@@ -121,8 +121,7 @@ async function login(page: Page, credentials: Record<string, string>, timeout: n
 }
 
 
-// קריאת המסלולים מדף הפורטל אחרי שהמשתמש כבר מחובר (באותו דפדפן ובאותה חיבור שבהם נסרק החשבון)
-export async function extractMortgageTracks(page: Page, timeout: number): Promise<MortgageTrack[]> {
+async function extractFromScreen(page: Page, timeout: number): Promise<MortgageTrack[]> {
     await sleep(5000);
     await closePopup(page);
     // התפריט: הלוואות ומשכנתאות ← משכנתאות (נפתח תת-תפריט) ← פירוט משכנתאות
@@ -173,6 +172,59 @@ export async function extractMortgageTracks(page: Page, timeout: number): Promis
     const tracks = Array.from(found.values());
     if (!tracks.length) throw new Error('פאג"י: לא נמצאו מסלולי משכנתא בדף');
     return tracks;
+}
+
+
+// אם קריאת הדף לא הצליחה: שומרים את הקובץ שהבנק מציע לשמירה (אייקון השמירה בדף הפירוט), קוראים אותו, ומוחקים אותו בכל מקרה
+async function extractFromDownload(page: Page): Promise<MortgageTrack[]> {
+  const dir = fs.mkdtempSync(path.join(userDataPath, 'pagi-dl-'));
+  try {
+    const client = await page.createCDPSession();
+    await client.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: dir } as never);
+    let clicked = false;
+    for (const frame of page.frames()) {
+      clicked =
+        clicked ||
+        (await frame
+          .evaluate(() => {
+            const icons = Array.from(document.querySelectorAll<HTMLElement>('a, button, [role="button"], i, span, img'));
+            const hit = icons.find((el) => /שמור|שמירה|הורד|ייצוא|excel|pdf|save|download/i.test(`${el.getAttribute('title') ?? ''} ${el.getAttribute('aria-label') ?? ''} ${el.className?.toString?.() ?? ''}`));
+            hit?.click();
+            return !!hit;
+          })
+          .catch(() => false));
+    }
+    if (!clicked) throw new Error('לא נמצא אייקון שמירה בדף');
+    const deadline = Date.now() + 40_000;
+    let file = '';
+    while (Date.now() < deadline && !file) {
+      await sleep(1000);
+      file = fs.readdirSync(dir).find((f) => !f.endsWith('.crdownload')) ?? '';
+    }
+    if (!file) throw new Error('הבנק לא הוריד קובץ');
+    const full = path.join(dir, file);
+    logAppEvent('MORTGAGE_DOWNLOAD', { name: path.extname(file), bytes: fs.statSync(full).size });
+    const text = fs.readFileSync(full, 'utf8').replace(/<[^>]+>/g, '\n');
+    const tracks = parseMortgageText(text);
+    if (!tracks.length) throw new Error('הקובץ שירד בפורמט שלא נקרא עדיין');
+    return tracks;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// קריאת המסלולים מדף הפורטל אחרי שהמשתמש כבר מחובר (באותו דפדפן ובאותה חיבור שבהם נסרק החשבון)
+export async function extractMortgageTracks(page: Page, timeout: number): Promise<MortgageTrack[]> {
+  try {
+    return await extractFromScreen(page, timeout);
+  } catch (e) {
+    try {
+      return await extractFromDownload(page);
+    } catch (e2) {
+      logAppEvent('MORTGAGE_DOWNLOAD_FAILED', { errorMessage: (e2 as Error).message });
+      throw e;
+    }
+  }
 }
 
 interface MortgageParams {
