@@ -2,6 +2,8 @@ import { type AccountToScrapeConfig } from '@/backend/commonTypes';
 import { createScraper, type ScraperOptions } from 'israeli-bank-scrapers-core';
 import { getProxyArgs } from '@/backend/proxyConfig';
 import { logAppEvent } from '/@/logging/operationLogger';
+import puppeteer from 'puppeteer-core';
+import { grabMortgagesFromLoggedInBrowser } from './pagiMortgages';
 import { userDataPath } from '@/app-globals';
 import path from 'path';
 
@@ -103,10 +105,25 @@ export async function scrape(
       }
     }, 90_000);
   };
+  let ownBrowser: Awaited<ReturnType<typeof puppeteer.launch>> | undefined;
+  if (companyId === 'pagi') {
+    ownBrowser = await puppeteer.launch({
+      executablePath: chromePath,
+      headless: !showBrowser,
+      args: options.args,
+      protocolTimeout: 600_000,
+    });
+    Object.assign(options, { browser: ownBrowser, skipCloseBrowser: true });
+  }
   const scraper = createScraper(options);
   scraper.onProgress((eventCompanyId: string, payload: { type: string }) => {
     emitProgressEvent(companyId, payload.type);
   });
   const scrapeResult = await scraper.scrape(credentials);
+  if (ownBrowser) {
+    // פאג"י חוסם כניסה שנייה, ולכן את המשכנתא קוראים עכשיו, באותו דפדפן שכבר מחובר
+    if (scrapeResult.success) await grabMortgagesFromLoggedInBrowser(ownBrowser, Math.max(timeout, 150_000));
+    await ownBrowser.close().catch(() => undefined);
+  }
   return scrapeResult;
 }

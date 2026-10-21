@@ -3,7 +3,7 @@ import { getConfig } from '@/backend/configManager/configManager';
 import { BudgetTrackingEventEmitter, EventNames } from '@/backend/eventEmitters/EventEmitter';
 import { budgetBase } from '@/backend/export/outputVendors/budget/budget';
 import { toHebrewError } from '@/backend/import/hebrewErrors';
-import { scrapePagiMortgages } from '@/backend/import/pagiMortgages';
+import { scrapePagiMortgages, takePendingMortgages } from '@/backend/import/pagiMortgages';
 import { saveMortgages } from '@/backend/import/mortgageStore';
 import { clearResume } from '@/backend/import/resumeStore';
 import getChrome from '@/backend/import/downloadChromium';
@@ -67,13 +67,15 @@ async function pushMortgages(
   const heartbeat = setInterval(report, 8000);
   try {
     const chromePath = config.scraping.chromiumPath || (await getChrome(userDataPath, () => undefined));
-    const tracks = await scrapePagiMortgages({
+    const tracks =
+      takePendingMortgages() ??
+      (await scrapePagiMortgages({
       credentials: account.loginFields as Record<string, string>,
       chromePath,
       showBrowser: config.scraping.showBrowser,
       timeout: config.scraping.timeout,
       profileKey: account.key,
-    });
+    }));
     await saveMortgages(tracks).catch(() => undefined);
     const result = await call(base, token, 'mortgage', { tracks });
     logAppEvent('BUDGET_MORTGAGE_PUSHED', { status: result.status, tracks: tracks.length });
@@ -177,13 +179,15 @@ export async function pullMortgagesInApp(config: Awaited<ReturnType<typeof getCo
   if (!account) return null;
   try {
     const chromePath = config.scraping.chromiumPath || (await getChrome(userDataPath, () => undefined));
-    const tracks = await scrapePagiMortgages({
+    const tracks =
+      takePendingMortgages() ??
+      (await scrapePagiMortgages({
       credentials: account.loginFields as Record<string, string>,
       chromePath,
       showBrowser: config.scraping.showBrowser,
       timeout: config.scraping.timeout,
       profileKey: account.key,
-    });
+    }));
     await saveMortgages(tracks);
     logAppEvent('MORTGAGE_PULLED_IN_APP', { tracks: tracks.length });
     const budget = config.outputVendors.budget;

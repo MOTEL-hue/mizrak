@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import puppeteer, { type Page } from 'puppeteer-core';
+import puppeteer, { type Browser, type Page } from 'puppeteer-core';
 import { userDataPath } from '@/app-globals';
 import { getProxyArgs } from '@/backend/proxyConfig';
 import { notifyProblem } from '../../notify';
@@ -11,6 +11,7 @@ const PAGI_LOGIN_URL =
   'https://online.pagi.co.il/MatafLoginService/MatafLoginServlet?bankId=PAGIPORTAL&site=Private&KODSAFA=HE';
 const LOGGED_IN = /FibiMenu\/Online|Resources\/PortalNG\/shell|accountSummary/;
 const SLOW_PAGE_MS = 150_000; // האתר נטען דקה עד שתיים אחרי הכניסה
+const PORTAL_URL = 'https://online.pagi.co.il/appsng/Resources/PortalNG/shell/#/accountSummary';
 const MORTGAGE_HASH = '#/Online/OnLoansMortgageMenu/OnMortgages/mortgageList';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -95,6 +96,62 @@ async function login(page: Page, credentials: Record<string, string>, timeout: n
   throw new Error('פאג"י: הכניסה לא הצליחה, או שנדרש אימות נוסף');
 }
 
+
+// קריאת המסלולים מדף הפורטל אחרי שהמשתמש כבר מחובר (באותו דפדפן ובאותה חיבור שבהם נסרק החשבון)
+export async function extractMortgageTracks(page: Page, timeout: number): Promise<MortgageTrack[]> {
+    await sleep(5000);
+    await closePopup(page);
+    // התפריט: הלוואות ומשכנתאות ← משכנתאות (נפתח תת-תפריט) ← פירוט משכנתאות
+    const reached =
+      (await clickByText(page, '^(ה)?הלוואות (ו)?(ה)?משכנתאות$')) &&
+      (await sleep(1500), await clickByText(page, '^משכנתאות$')) &&
+      (await sleep(1200), await clickByText(page, '^פירוט משכנתאות$'));
+    if (!reached)
+      await page.evaluate((hash) => {
+        window.location.hash = hash;
+      }, MORTGAGE_HASH);
+    const hasTracks = () => /מספר\s*משנה/.test(document.body.innerText);
+    const onDetails = await page
+      .waitForFunction(hasTracks, { timeout: 25_000 })
+      .then(() => true)
+      .catch(() => false);
+    // הכתובת פותחת לפעמים את דף "ריכוז משכנתאות", ולא את הפירוט. עוברים אליו דרך הקישור "לפירוט משכנתאות"
+    logAppEvent('MORTGAGE_NAV', { menuReached: !!reached, onDetails });
+    if (!onDetails) await clickByText(page, 'פירוט משכנתאות');
+    await page.waitForFunction(hasTracks, { timeout: Math.max(timeout, SLOW_PAGE_MS) });
+    await closePopup(page);
+    // כל מסלול נטען רק אחרי לחיצה על החץ שלו, ולכן קוראים את הדף אחרי כל פתיחה ומאחדים לפי מספר משנה
+    const found = new Map<string, MortgageTrack>();
+    // כותרות המסלולים ("מספר הלוואה ... מספר משנה"): הרכיב הפנימי ביותר שמתאים. textContent כדי לא לחשב פריסה לכל הדף
+    const headersScript = `
+      const all = Array.from(document.querySelectorAll('div, li, tr')).filter((el) => {
+        const t = el.textContent || '';
+        return t.length < 120 && /^\\s*מספר\\s*הלוואה/.test(t);
+      });
+      const headers = all.filter((el) => !Array.from(el.children).some((c) => all.includes(c)));
+    `;
+    const rows = await page.evaluate(`(() => { ${headersScript} return headers.length; })()`);
+    const openCount = () => page.evaluate(() => (document.body.innerText.match(/יתרת\s*קרן/g) ?? []).length);
+    for (let i = 0; i < Math.max(Number(rows), 1); i += 1) {
+      const before = await openCount();
+      await page.evaluate(`(() => { ${headersScript} headers[${i}]?.click(); })()`);
+      await sleep(2000);
+      // אם הלחיצה על השורה לא פתחה את המסלול, לוחצים על החץ שלה
+      if ((await openCount()) <= before) {
+        await page.evaluate(`(() => { ${headersScript}
+          const row = headers[${i}]; const box = row?.parentElement ?? row;
+          const arrow = box?.querySelector('button, [class*="arrow"], [class*="chevron"], [class*="toggle"], [class*="expand"], i, svg');
+          (arrow ?? row)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        })()`);
+        await sleep(2000);
+      }
+      parseMortgageText(await page.evaluate(() => document.body.innerText)).forEach((t) => found.set(t.id, t));
+    }
+    const tracks = Array.from(found.values());
+    if (!tracks.length) throw new Error('פאג"י: לא נמצאו מסלולי משכנתא בדף');
+    return tracks;
+}
+
 interface MortgageParams {
   credentials: Record<string, string>;
   chromePath: string;
@@ -127,61 +184,34 @@ async function scrapeMortgagesOnce(params: MortgageParams): Promise<MortgageTrac
     page = await browser.newPage();
     page.setDefaultTimeout(params.timeout);
     await login(page, params.credentials, params.timeout);
-    await sleep(5000);
-    await closePopup(page);
-    // התפריט: הלוואות ומשכנתאות ← משכנתאות (נפתח תת-תפריט) ← פירוט משכנתאות
-    const reached =
-      (await clickByText(page, '^(ה)?הלוואות (ו)?(ה)?משכנתאות$')) &&
-      (await sleep(1500), await clickByText(page, '^משכנתאות$')) &&
-      (await sleep(1200), await clickByText(page, '^פירוט משכנתאות$'));
-    if (!reached)
-      await page.evaluate((hash) => {
-        window.location.hash = hash;
-      }, MORTGAGE_HASH);
-    const hasTracks = () => /מספר\s*משנה/.test(document.body.innerText);
-    const onDetails = await page
-      .waitForFunction(hasTracks, { timeout: 25_000 })
-      .then(() => true)
-      .catch(() => false);
-    // הכתובת פותחת לפעמים את דף "ריכוז משכנתאות", ולא את הפירוט. עוברים אליו דרך הקישור "לפירוט משכנתאות"
-    logAppEvent('MORTGAGE_NAV', { menuReached: !!reached, onDetails });
-    if (!onDetails) await clickByText(page, 'פירוט משכנתאות');
-    await page.waitForFunction(hasTracks, { timeout: Math.max(params.timeout, SLOW_PAGE_MS) });
-    await closePopup(page);
-    // כל מסלול נטען רק אחרי לחיצה על החץ שלו, ולכן קוראים את הדף אחרי כל פתיחה ומאחדים לפי מספר משנה
-    const found = new Map<string, MortgageTrack>();
-    // כותרות המסלולים ("מספר הלוואה ... מספר משנה"): הרכיב הפנימי ביותר שמתאים. textContent כדי לא לחשב פריסה לכל הדף
-    const headersScript = `
-      const all = Array.from(document.querySelectorAll('div, li, tr')).filter((el) => {
-        const t = el.textContent || '';
-        return t.length < 120 && /^\\s*מספר\\s*הלוואה/.test(t);
-      });
-      const headers = all.filter((el) => !Array.from(el.children).some((c) => all.includes(c)));
-    `;
-    const rows = await page.evaluate(`(() => { ${headersScript} return headers.length; })()`);
-    const openCount = () => page.evaluate(() => (document.body.innerText.match(/יתרת\s*קרן/g) ?? []).length);
-    for (let i = 0; i < Math.max(Number(rows), 1); i += 1) {
-      const before = await openCount();
-      await page.evaluate(`(() => { ${headersScript} headers[${i}]?.click(); })()`);
-      await sleep(2000);
-      // אם הלחיצה על השורה לא פתחה את המסלול, לוחצים על החץ שלה
-      if ((await openCount()) <= before) {
-        await page.evaluate(`(() => { ${headersScript}
-          const row = headers[${i}]; const box = row?.parentElement ?? row;
-          const arrow = box?.querySelector('button, [class*="arrow"], [class*="chevron"], [class*="toggle"], [class*="expand"], i, svg');
-          (arrow ?? row)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        })()`);
-        await sleep(2000);
-      }
-      parseMortgageText(await page.evaluate(() => document.body.innerText)).forEach((t) => found.set(t.id, t));
-    }
-    const tracks = Array.from(found.values());
-    if (!tracks.length) throw new Error('פאג"י: לא נמצאו מסלולי משכנתא בדף');
-    return tracks;
+    return await extractMortgageTracks(page, params.timeout);
   } catch (e) {
     await saveDiagnostic(page);
     throw e;
   } finally {
     await browser.close();
   }
+}
+
+// מסלולים שנמשכו באותו דפדפן של סריקת החשבון (בלי כניסה נוספת, שהאתר חוסם). נצרכים פעם אחת
+let pending: { tracks: MortgageTrack[]; at: number } | null = null;
+
+export async function grabMortgagesFromLoggedInBrowser(browser: Browser, timeout: number) {
+  let page: Page | undefined;
+  try {
+    page = await browser.newPage();
+    page.setDefaultTimeout(timeout);
+    await page.goto(PORTAL_URL, { waitUntil: 'domcontentloaded' });
+    pending = { tracks: await extractMortgageTracks(page, timeout), at: Date.now() };
+    logAppEvent('MORTGAGE_GRABBED_IN_SESSION', { tracks: pending.tracks.length });
+  } catch (e) {
+    logAppEvent('MORTGAGE_GRAB_IN_SESSION_FAILED', { errorMessage: (e as Error).message });
+    await saveDiagnostic(page);
+  }
+}
+
+export function takePendingMortgages(): MortgageTrack[] | null {
+  const fresh = pending && Date.now() - pending.at < 15 * 60 * 1000 ? pending.tracks : null;
+  pending = null;
+  return fresh;
 }
