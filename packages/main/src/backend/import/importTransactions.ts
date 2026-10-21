@@ -150,7 +150,7 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
         } catch (e) {
           if ((botBlockedUntil.get(accountToScrape.key) ?? 0) > Date.now()) return scrapeAssisted();
           if (/INVALID_PASSWORD/i.test((e as Error).message ?? '') && SAME_GROUP[accountToScrape.key]) return switchBank(e as Error);
-          if (!/Waiting for selector|Navigation timeout|net::ERR/i.test((e as Error).message ?? '')) throw e;
+          if (!/Waiting for selector|Navigation timeout|net::ERR|Execution context was destroyed/i.test((e as Error).message ?? '')) throw e;
           log.info('SCRAPE_RETRY', { importer: accountToScrape.key });
           await sleep(RETRY_WAIT_MS);
           return scrapeOnce();
