@@ -2,7 +2,7 @@ import { type Config } from '@/backend/commonTypes';
 import { saveScrapedTransactions } from '@/backend/localStore';
 import { createTransactionsInExternalVendors } from '@/backend/export/exportTransactions';
 import { scrapeFinancialAccountsAndFetchTransactions } from '@/backend/import/importTransactions';
-import { clearResume } from '@/backend/import/resumeStore';
+import { clearResume, touchResume } from '@/backend/import/resumeStore';
 import { initProxyIfNeeded, tearDownProxy } from '@/backend/proxyConfig';
 import moment from 'moment';
 import * as configManager from './configManager/configManager';
@@ -114,6 +114,7 @@ async function runScrapeAndExport(config: Config, optionalEventPublisher?: Event
       // כשכל החשבונות הסתיימו אין מה להמשיך ממנו; אם חלקם נכשלו, הסריקה הבאה תנסה רק אותם
       const activeCount = config.scraping.accountsToScrape.filter((a) => a.active !== false).length;
       if (Object.keys(companyIdToTransactions).length >= activeCount) await clearResume();
+      else await touchResume();
       return result;
     } catch (e) {
       const error = e as Error;

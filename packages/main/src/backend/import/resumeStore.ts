@@ -8,7 +8,7 @@ import { type EnrichedTransaction } from '../commonTypes';
 const MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const filePath = () => path.join(userDataPath, 'scrape-resume.json');
 
-type ResumeFile = { savedAt: number; startDate: string; accounts: Record<string, EnrichedTransaction[]> };
+type ResumeFile = { savedAt: number; lastRunAt?: number; startDate: string; accounts: Record<string, EnrichedTransaction[]> };
 
 export async function loadResume(startDate: Date): Promise<Record<string, EnrichedTransaction[]>> {
   try {
@@ -21,7 +21,7 @@ export async function loadResume(startDate: Date): Promise<Record<string, Enrich
 }
 
 export async function saveResume(startDate: Date, accounts: Record<string, EnrichedTransaction[]>) {
-  const data: ResumeFile = { savedAt: Date.now(), startDate: startDate.toISOString().slice(0, 10), accounts };
+  const data: ResumeFile = { savedAt: Date.now(), lastRunAt: Date.now(), startDate: startDate.toISOString().slice(0, 10), accounts };
   await fs.writeFile(filePath(), JSON.stringify(data));
 }
 
@@ -34,8 +34,20 @@ export async function loadResumeInfo(): Promise<{ count: number; savedAt: number
   try {
     const data = JSON.parse(await fs.readFile(filePath(), 'utf8')) as ResumeFile;
     const count = Object.keys(data.accounts ?? {}).length;
-    return count > 0 && Date.now() - data.savedAt < 60 * 60 * 1000 ? { count, savedAt: data.savedAt } : null;
+    const last = data.lastRunAt ?? data.savedAt;
+    return count > 0 && Date.now() - last < 60 * 60 * 1000 ? { count, savedAt: last } : null;
   } catch {
     return null;
+  }
+}
+
+// סימון שהייתה ריצה (חלקית) עכשיו, כדי ששאלת "רק מה שלא הצליח או הכל" תופיע גם כשבריצה הזו לא נוסף חשבון חדש
+export async function touchResume() {
+  try {
+    const data = JSON.parse(await fs.readFile(filePath(), 'utf8')) as ResumeFile;
+    data.lastRunAt = Date.now();
+    await fs.writeFile(filePath(), JSON.stringify(data));
+  } catch {
+    // אין קובץ
   }
 }
