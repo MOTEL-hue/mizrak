@@ -92,6 +92,30 @@ export async function scrape(
         setTimeout(() => page.close().catch(() => undefined), 3000);
       }
     });
+    // כאל: מצלמים את מבנה מסך הכניסה (מזהים של שדות, כפתורים וטאבים) כדי להתאים את הסורק למסך החדש
+    if (companyId === 'visaCal') {
+      setTimeout(async () => {
+        try {
+          if (page.isClosed()) return;
+          const frames = await Promise.all(
+            page.frames().map(async (frame) => {
+              const items = await frame
+                .evaluate(() =>
+                  Array.from(document.querySelectorAll('input, button, [role="tab"], [id]'))
+                    .slice(0, 60)
+                    .map((el) => `${el.tagName.toLowerCase()}#${el.id}.${el.getAttribute('formcontrolname') ?? el.getAttribute('name') ?? ''}:${(el.textContent ?? '').trim().slice(0, 25)}`)
+                    .join(' ; '),
+                )
+                .catch(() => '');
+              return `${frame.url().split('?')[0]} => ${items}`;
+            }),
+          );
+          logAppEvent('CAL_LOGIN_STRUCTURE', { frames: frames.join(' || ').slice(0, 4000) });
+        } catch {
+          // אבחון בלבד
+        }
+      }, 20_000);
+    }
     // צילום טקסט של הדף אחרי 90 שניות, כדי לדעת מה האתר הציג כשהכניסה נתקעת (בלי סיסמאות, רק הטקסט הגלוי)
     setTimeout(async () => {
       try {
