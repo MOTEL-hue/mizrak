@@ -277,7 +277,16 @@ export async function grabMortgagesFromLoggedInBrowser(browser: Browser, timeout
     page = await browser.newPage();
     page.setDefaultTimeout(timeout);
     await page.goto(PORTAL_URL, { waitUntil: 'domcontentloaded' });
-    pending = { tracks: await extractMortgageTracks(page, timeout), at: Date.now() };
+    // תקרה כוללת: אם הדף לא נטען או לא נקרא, לא ממשיכים להחזיק חלון פתוח ולעכב את הסנכרון
+    const work = extractMortgageTracks(page, timeout);
+    work.catch(() => undefined);
+    const tracks = await Promise.race([
+      work,
+      sleep(150_000).then(() => {
+        throw new Error('קריאת המשכנתא לקחה יותר מדי זמן');
+      }),
+    ]);
+    pending = { tracks, at: Date.now() };
     logAppEvent('MORTGAGE_GRABBED_IN_SESSION', { tracks: pending.tracks.length });
   } catch (e) {
     logAppEvent('MORTGAGE_GRAB_IN_SESSION_FAILED', { errorMessage: (e as Error).message });
