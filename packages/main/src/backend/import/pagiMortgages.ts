@@ -131,9 +131,14 @@ async function scrapeMortgagesOnce(params: MortgageParams): Promise<MortgageTrac
       await page.evaluate((hash) => {
         window.location.hash = hash;
       }, MORTGAGE_HASH);
-    await page.waitForFunction(() => /מספר\s*משנה/.test(document.body.innerText), {
-      timeout: Math.max(params.timeout, SLOW_PAGE_MS),
-    });
+    const hasTracks = () => /מספר\s*משנה/.test(document.body.innerText);
+    const onDetails = await page
+      .waitForFunction(hasTracks, { timeout: 25_000 })
+      .then(() => true)
+      .catch(() => false);
+    // הכתובת פותחת לפעמים את דף "ריכוז משכנתאות", ולא את הפירוט. עוברים אליו דרך הקישור "לפירוט משכנתאות"
+    if (!onDetails) await clickByText(page, 'פירוט משכנתאות');
+    await page.waitForFunction(hasTracks, { timeout: Math.max(params.timeout, SLOW_PAGE_MS) });
     await closePopup(page);
     // כל מסלול נטען רק אחרי לחיצה על החץ שלו, ולכן קוראים את הדף אחרי כל פתיחה ומאחדים לפי מספר משנה
     const found = new Map<string, MortgageTrack>();
