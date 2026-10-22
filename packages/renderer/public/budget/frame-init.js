@@ -48,6 +48,11 @@ window.BUDGET_ROLE = 'admin'; window.BUDGET_PEOPLE = ''; window.BUDGET_CAN_WIPE 
       tab.innerHTML = '<b>🔄</b>סנכרון';
       nav.appendChild(tab);
     }
+    const note = document.querySelector('#sync-card p.mut');
+    if (note && !note.dataset.local) {
+      note.dataset.local = '1';
+      note.textContent = 'הסנכרון רץ בתוך התוכנה הזאת. את הסנכרון האוטומטי מגדירים בלשונית "סנכרון".';
+    }
     post({ type: 'budget-nav', height: Math.ceil(nav.getBoundingClientRect().height) });
   };
   new MutationObserver(inject).observe(document.documentElement, { childList: true, subtree: true });

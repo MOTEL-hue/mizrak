@@ -1,20 +1,29 @@
 import { budgetDocsAll, budgetDocsBatch, budgetRates } from '#preload';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ConfigStore, useConfigStore } from '../../store/ConfigStore';
+import { getSyncInfo, startSync, watchSyncResults } from '../sync/syncState';
 
 // דף התקציב רץ בתוך מסגרת (iframe) ומדבר עם המסמכים המקומיים במקום עם האתר.
 // כל הקריאות לכתובת /__local/ נתפסות כאן. מה שדורש אינטרנט (ריבית, בינה, סמיט) עונה "לא זמין", והדף מציג הודעה.
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-async function localApi(path: string, init?: RequestInit): Promise<Response> {
+async function localApi(path: string, init: RequestInit | undefined, store: ConfigStore): Promise<Response> {
   if (path === 'all') return json(await budgetDocsAll());
   if (path === 'batch') return json(await budgetDocsBatch(JSON.parse(String(init?.body ?? '{}')).ops ?? []));
+  if (path === 'sync-state') return json(getSyncInfo(store));
+  if (path === 'sync-request') {
+    await startSync(store, JSON.parse(String(init?.body ?? '{}')).mode === 'all' ? 'all' : undefined);
+    return json({ ...getSyncInfo(store), status: 'running' });
+  }
   if (path === 'rates') return json(await budgetRates());
   return json({ error: 'לא זמין בתוכנה' }, 404);
 }
 
 // התקציב הוא התוכנה כולה. לשונית "סנכרון" שבתפריט שלו פותחת את דף הסנכרון מעל תוכן הדף (התפריט נשאר גלוי)
 function BudgetPage({ sync }: { sync: ReactNode }) {
+  const store = useConfigStore();
   const frame = useRef<HTMLIFrameElement>(null);
+  useEffect(() => watchSyncResults(store), [store]);
   const [syncOpen, setSyncOpen] = useState(false);
   const [navHeight, setNavHeight] = useState(58);
   const [ready, setReady] = useState(false);
@@ -34,13 +43,13 @@ function BudgetPage({ sync }: { sync: ReactNode }) {
         setReady(true);
       }
       if (m.type === 'budget-api') {
-        const response = await localApi(String(m.path), { body: m.body }).catch(() => json({ error: 'שגיאה' }, 500));
+        const response = await localApi(String(m.path), { body: m.body }, store).catch(() => json({ error: 'שגיאה' }, 500));
         frame.current?.contentWindow?.postMessage({ type: 'budget-api-reply', id: m.id, status: response.status, body: await response.text() }, '*');
       }
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, []);
+  }, [store]);
 
   // אם התקציב לא עלה תוך כמה שניות, מציגים הודעה ברורה במקום מסך ריק (והפרטים בקובץ האבחון)
   const [failed, setFailed] = useState(false);
