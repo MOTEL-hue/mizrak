@@ -69,7 +69,7 @@ async function autoUpdateOnce(isScrapeRunning: () => boolean, openWindow: () => 
     if (!info || info.version === notifiedVersion || !Notification.isSupported()) return;
     notifiedVersion = info.version;
     const note = new Notification({
-      title: 'מזרק: יש גרסה חדשה',
+      title: 'תקציב: יש גרסה חדשה',
       body: `גרסה ${info.version} זמינה. לחץ כאן כדי להוריד ולהתקין (התוכנה תיפתח מחדש).`,
     });
     note.on('click', () => void approveAndInstall(openWindow));

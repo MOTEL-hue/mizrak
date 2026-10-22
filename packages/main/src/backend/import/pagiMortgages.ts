@@ -277,7 +277,7 @@ export async function scrapePagiMortgages(params: MortgageParams): Promise<Mortg
     return await scrapeMortgagesOnce(params);
   } catch (e) {
     if (params.showBrowser || !/הכניסה לא הצליחה|אימות/.test((e as Error).message)) throw e;
-    notifyProblem('מזרק: נדרש אימות ידני בפאג"י', 'נפתח חלון של פאג"י לצורך משיכת המשכנתא. אשר את האימות אם מבקשים, והמשיכה תמשיך לבד.');
+    notifyProblem('תקציב: נדרש אימות ידני בפאג"י', 'נפתח חלון של פאג"י לצורך משיכת המשכנתא. אשר את האימות אם מבקשים, והמשיכה תמשיך לבד.');
     return scrapeMortgagesOnce({ ...params, showBrowser: true, timeout: Math.max(params.timeout, 300_000) });
   }
 }

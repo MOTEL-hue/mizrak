@@ -132,7 +132,7 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
       const scrapeAssisted = async () => {
         const key = accountToScrape.key;
         log.info('SCRAPE_ASSISTED_START', { importer: key });
-        notifyProblem('מזרק: נדרש אימות ידני', `האתר של ${accountToScrape.name ?? key} ביקש אימות. נפתח חלון: אשר אותו (עד חמש דקות) והסריקה תמשיך לבד.`);
+        notifyProblem('תקציב: נדרש אימות ידני', `האתר של ${accountToScrape.name ?? key} ביקש אימות. נפתח חלון: אשר אותו (עד חמש דקות) והסריקה תמשיך לבד.`);
         assistedCompanies.add(key);
         try {
           const result = await scrapeOnce(true);
@@ -162,7 +162,7 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
             // אתר איטי מאוד או חוסם דפדפן שקוף: ניסיון אחרון בחלון גלוי, שבדרך כלל נטען ועובד
             if (VISIBLE_FALLBACK.includes(accountToScrape.key) && /Navigation timeout|detached Frame|Execution context/i.test((e2 as Error).message ?? '')) {
               log.info('SCRAPE_VISIBLE_FALLBACK', { importer: accountToScrape.key });
-              notifyProblem('מזרק: נפתח חלון', `האתר של ${accountToScrape.name ?? accountToScrape.key} איטי או חוסם דפדפן שקוף, ולכן נפתח חלון. אפשר להשאיר אותו פתוח עד שהסריקה תסתיים.`);
+              notifyProblem('תקציב: נפתח חלון', `האתר של ${accountToScrape.name ?? accountToScrape.key} איטי או חוסם דפדפן שקוף, ולכן נפתח חלון. אפשר להשאיר אותו פתוח עד שהסריקה תסתיים.`);
               return scrapeOnce(true);
             }
             throw e2;

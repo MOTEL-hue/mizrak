@@ -53,7 +53,7 @@ export async function buildDiagnosticsReport(): Promise<string> {
   }
   const explanations = explainText(logs);
   return [
-    '===== קובץ אבחון של מזרק =====',
+    '===== קובץ אבחון של תקציב =====',
     'הקובץ אינו כולל סיסמאות או מפתחות. אפשר לשלוח אותו לצורך טיפול בבעיה.',
     '',
     '== פרטי התוכנה והמחשב ==',

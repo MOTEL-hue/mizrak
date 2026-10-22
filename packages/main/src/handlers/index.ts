@@ -116,7 +116,7 @@ export const registerHandlers = () => {
       // הודעה בעברית גם מחוץ לחלון, וגם בתוך החלון עם הסבר
       event.reply('scrapingSummary', JSON.stringify(problems));
       notifyProblem(
-        'מזרק: הסריקה הסתיימה עם שגיאות',
+        'תקציב: הסריקה הסתיימה עם שגיאות',
         problems.map((x) => `${x.name}: ${x.message}`).join(' | '),
       );
     }

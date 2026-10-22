@@ -42,7 +42,7 @@ function TopBar() {
                 }}
               ></div>
               <div>
-                מזרק
+                תקציב
                 {appInfoStore.appInfo?.currentVersion && (
                   <div className="mz-version">גרסה {appInfoStore.appInfo.currentVersion}</div>
                 )}

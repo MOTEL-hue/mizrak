@@ -90,7 +90,7 @@ async function pushMortgages(
   } catch (e) {
     logAppEvent('BUDGET_MORTGAGE_FAILED', { errorMessage: (e as Error).message });
     const message = toHebrewError((e as Error).message);
-    notifyProblem('מזרק: משיכת המשכנתא נכשלה', message);
+    notifyProblem('תקציב: משיכת המשכנתא נכשלה', message);
     return message;
   } finally {
     clearInterval(heartbeat);
@@ -162,12 +162,12 @@ export async function budgetTick() {
       // כשחלק מהחשבונות נכשלו, מה שהצליח כבר נשלח לתקציב, ולכן הדיווח הוא "חלקי" ולא כשל מלא
       const allFailed = failures.length > 0 && failures.length >= config.scraping.accountsToScrape.filter((a) => a.active !== false).length;
       await call(base, token, 'sync-report', { status: summary ? (allFailed ? 'error' : 'partial') : 'ok', message: summary });
-      if (summary) notifyProblem('מזרק: הסנכרון נכשל בחלק מהחשבונות', `${summary}. לפרטים ולמה לעשות: פתח את מזרק ← עזרה והסברים.`);
+      if (summary) notifyProblem('תקציב: הסנכרון נכשל בחלק מהחשבונות', `${summary}. לפרטים ולמה לעשות: פתח את תקציב ← עזרה והסברים.`);
       logAppEvent('BUDGET_SYNC_DONE', { failed: failures.length });
     } catch (e) {
       const message = toHebrewError((e as Error).message);
       await call(base, token, 'sync-report', { status: 'error', message });
-      notifyProblem('מזרק: הסנכרון נכשל', message);
+      notifyProblem('תקציב: הסנכרון נכשל', message);
       logAppEvent('BUDGET_SYNC_FAILED', { errorMessage: (e as Error).message });
     }
   } catch (e) {

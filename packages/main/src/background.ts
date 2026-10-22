@@ -30,7 +30,7 @@ async function setAutostart(enabled: boolean) {
 
 function buildMenu() {
   return Menu.buildFromTemplate([
-    { label: 'פתיחת מזרק', click: () => void restoreOrCreateWindow() },
+    { label: 'פתיחת תקציב', click: () => void restoreOrCreateWindow() },
     { label: 'סנכרון עכשיו', click: () => void budgetTick() },
     { type: 'separator' },
     {
@@ -59,7 +59,7 @@ export async function startBackgroundMode() {
   try {
     const icon = await app.getFileIcon(process.execPath);
     tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
-    tray.setToolTip('מזרק - פועל ברקע ומסנכרן את התקציב');
+    tray.setToolTip('תקציב - פועל ברקע ומסנכרן את התקציב');
     tray.setContextMenu(buildMenu());
     tray.on('click', () => void restoreOrCreateWindow());
     tray.on('right-click', () => tray?.setContextMenu(buildMenu()));

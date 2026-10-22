@@ -56,7 +56,7 @@ const EditBudgetExporter = ({ handleSave, exporter }: EditBudgetExporterProps) =
               />
               {codeMessage && <Form.Text>{codeMessage}</Form.Text>}
               <Form.Text className="d-block">
-                באתר התקציב: הגדרות ← "חיבור לתוכנת מזרק" ← "יצירת קוד חיבור". מדביקים כאן, והכתובת והמפתח מתמלאים לבד.
+                באתר התקציב: הגדרות ← "חיבור לתוכנת תקציב" ← "יצירת קוד חיבור". מדביקים כאן, והכתובת והמפתח מתמלאים לבד.
               </Form.Text>
             </Form.Group>
             <Form.Group controlId="budgetSiteUrl" className="mb-3">
@@ -109,7 +109,7 @@ const EditBudgetExporter = ({ handleSave, exporter }: EditBudgetExporterProps) =
             </div>
             <Alert variant="info" className="small">
               איך מחברים: 1) לוחצים "יצירת מפתח חיבור חדש" ו"שמור". 2) מעתיקים את המפתח. 3) באתר התקציב נכנסים להגדרות,
-              "חיבור לתוכנת מזרק", ומדביקים אותו. 4) מסמנים "פעיל". מעכשיו כל הפעלה שולחת את התנועות לתקציב.
+              "חיבור לתוכנת תקציב", ומדביקים אותו. 4) מסמנים "פעיל". מעכשיו כל הפעלה שולחת את התנועות לתקציב.
             </Alert>
             <Form.Group controlId="exporterActive">
               <Form.Check
