@@ -912,27 +912,66 @@ function dupFinder() {
 let impf = { q: '', limit: 200 };
 const impLabel = () => { const n = S.data.tx.filter(t => !t.del && t.arch).length; return '📦 דף הייבוא' + (n ? ' (' + n + ')' : ''); };
 const isBankTx = t => String(t.id).startsWith('bk-');
+const impKeep = () => S.settings.impKeep || [];
+// לכל חודש: כמה תנועות מהייבוא נספרות, כמה בדף הייבוא, וכמה תנועות בנק יש בו
+function impMonths() {
+  const g = {}, row = ym => g[ym] = g[ym] || { ym, counted: 0, arch: 0, bank: 0 };
+  S.data.tx.filter(t => !t.del).forEach(t => { const r = row(ymOf(t)); if (isBankTx(t)) r.bank++; else if (t.arch) r.arch++; else r.counted++; });
+  return Object.values(g).filter(r => r.counted || r.arch).sort((a, b) => b.ym.localeCompare(a.ym));
+}
 const impList = () => S.data.tx.filter(t => !t.del && t.arch).sort((a, b) => String(b.date).localeCompare(a.date));
 V.imp = () => {
   const all = impList(), q = impf.q.trim(), rows = all.filter(t => !q || `${t.note || ''} ${t.cat || ''}`.includes(q));
   const notBank = S.data.tx.filter(t => !t.del && !t.arch && !isBankTx(t)).length;
   return `<div class="card"><h2>📦 דף הייבוא</h2>
   <p class="mut">התקציב מחושב אוטומטית לפי תנועות הבנק בלבד. תנועות שיובאו מקובץ (ולא הגיעו מהבנק) נשמרות כאן, ואינן נספרות. אפשר להחזיר מהן לספירה, לתקן, למחוק, או להעביר את הסעיפים שלהן לתנועות בנק תואמות.</p>
-  <div class="row"><button class="b sec" data-tab="txs">← חזרה לתנועות</button>${canEdit() && notBank ? `<button class="b red" id="imp-reset">🧹 איפוס: לחשב רק לפי הבנק (${notBank} תנועות שאינן מהבנק)</button>` : ''}</div></div>
+  <div class="row"><button class="b sec" data-tab="txs">← חזרה לתנועות</button>${canEdit() ? `<button class="b red" id="imp-reset">🧹 איפוס: לחשב לפי הבנק${notBank ? ` (${notBank} תנועות מהייבוא בספירה)` : ''}</button>` : ''}</div></div>
+  ${impMonthsCard()}
   <div class="card"><h3>${all.length} תנועות בדף הייבוא</h3>
   <div class="row"><input id="imp-q" placeholder="חיפוש בתיאור או בסעיף" value="${esc(impf.q)}">${canEdit() && all.length ? '<button class="b sec" id="imp-cats">העבר סעיפים לתנועות בנק תואמות</button> <button class="b sec" id="imp-back">החזר לספירה את הנבחרות</button> <button class="b red" id="imp-del">מחק את הנבחרות</button>' : ''}</div>
   ${rows.length ? `<div class="scroll"><table><tr><th><input type="checkbox" id="imp-all"></th><th>תאריך</th><th>תיאור</th><th>סכום</th><th>סעיף</th><th></th></tr>${rows.slice(0, impf.limit).map(t => `<tr><td><input type="checkbox" data-imp="${t.id}"></td><td>${esc(String(t.date).slice(0, 10))}</td><td>${esc(t.note || '')}</td><td class="n">${t.type === 'income' ? '' : '-'}${fmt(t.amount)}</td><td>${esc(t.cat || '')}</td><td>${canEdit() ? `<button class="ic" data-impedit="${t.id}" title="עריכה">✏️</button>` : ''}</td></tr>`).join('')}</table></div>${rows.length > impf.limit ? `<p><button class="b sec" id="imp-more">הצג עוד (${rows.length - impf.limit})</button></p>` : ''}` : '<p class="mut">אין תנועות בדף הייבוא.</p>'}</div>`;
 };
+function impMonthsCard() {
+  const ms = impMonths(); if (!ms.length) return '';
+  const years = [...new Set(ms.map(r => r.ym.slice(0, 4)))];
+  return `<div class="card"><h3>הייבוא לפי חודשים ושנים</h3>
+  <p class="mut">בחודש שיש בו נתוני בנק אפשר להעביר את הייבוא לדף הזה, ובחודש בלי נתוני בנק כדאי להשאיר אותו בספירה. סימון שנה בוחר את כל החודשים שלה. חודש שהוחזר לספירה נשאר בדף הראשי גם אחרי איפוס.</p>
+  <div class="scroll"><table><tr><th></th><th>חודש</th><th>בספירה (מהייבוא)</th><th>בדף הייבוא</th><th>תנועות בנק</th><th></th></tr>${years.map(y => `<tr class="tot"><td><input type="checkbox" data-impyear="${y}"></td><td colspan="5"><b>${y}</b></td></tr>` + ms.filter(r => r.ym.startsWith(y)).map(r => `<tr><td><input type="checkbox" data-impm="${r.ym}"></td><td>${r.ym.slice(5)}/${y}</td><td class="n">${r.counted}</td><td class="n">${r.arch}</td><td class="n">${r.bank}</td><td class="mut">${impKeep().includes(r.ym) ? 'נשאר בדף הראשי' : ''}</td></tr>`).join('')).join('')}</table></div>
+  ${canEdit() ? '<div class="row" style="margin-top:8px"><button class="b" id="imp-m-back">החזר לספירה (ויישאר בדף הראשי)</button> <button class="b sec" id="imp-m-away">העבר לדף הייבוא</button></div>' : ''}</div>`;
+}
 function bindImp() {
   const R = $('#app'), picked = () => [...R.querySelectorAll('[data-imp]:checked')].map(c => S.data.tx.find(t => t.id === c.dataset.imp)).filter(Boolean);
   $('#imp-q')?.addEventListener('change', e => { impf.q = e.target.value; impf.limit = 200; render(); });
   $('#imp-more')?.addEventListener('click', () => { impf.limit += 200; render(); });
   $('#imp-all')?.addEventListener('change', e => R.querySelectorAll('[data-imp]').forEach(c => { c.checked = e.target.checked; }));
   R.querySelectorAll('[data-impedit]').forEach(b => b.onclick = () => form('tx', S.data.tx.find(t => t.id === b.dataset.impedit), render));
-  $('#imp-reset')?.addEventListener('click', async () => {
-    const list = S.data.tx.filter(t => !t.del && !t.arch && !isBankTx(t));
-    if (!await ask(`להעביר ${list.length} תנועות שאינן מהבנק לדף הייבוא? הן לא ייספרו בתקציב עד שתחזיר אותן, ולא יימחקו.`)) return;
-    list.forEach(t => put('tx', { ...t, arch: true })); toast(`הועברו ${list.length} תנועות`); render();
+  R.querySelectorAll('[data-impyear]').forEach(c => c.onchange = () => R.querySelectorAll(`[data-impm^="${c.dataset.impyear}-"]`).forEach(x => { x.checked = c.checked; }));
+  const pickedMonths = () => new Set([...R.querySelectorAll('[data-impm]:checked')].map(c => c.dataset.impm));
+  const moveMonths = back => {
+    const ms = pickedMonths(); if (!ms.size) return toast('לא נבחר חודש');
+    let n = 0; S.data.tx.filter(t => !t.del && !isBankTx(t) && ms.has(ymOf(t)) && !!t.arch === back).forEach(t => { if (back) { const { arch, ...rest } = t; put('tx', rest); } else put('tx', { ...t, arch: true }); n++; });
+    S.settings.impKeep = back ? [...new Set([...impKeep(), ...ms])] : impKeep().filter(m => !ms.has(m)); save();
+    toast(back ? `הוחזרו ${n} תנועות לספירה` : `הועברו ${n} תנועות לדף הייבוא`); render();
+  };
+  $('#imp-m-back')?.addEventListener('click', () => moveMonths(true));
+  $('#imp-m-away')?.addEventListener('click', () => moveMonths(false));
+  $('#imp-reset')?.addEventListener('click', () => {
+    const m = modal(`<h2>איפוס: לחשב לפי הבנק</h2>
+      <p class="mut">שום דבר לא נמחק. אפשר להחזיר הכול מדף הייבוא.</p>
+      <p><label><input type="checkbox" id="rs-move" checked> העבר את הייבוא לדף הייבוא, <b>רק בחודשים שיש בהם נתוני בנק</b> (חודשים בלי נתוני בנק וחודשים שהוגדרו להישאר בדף הראשי לא ייגעו)</label></p>
+      <p><label><input type="checkbox" id="rs-cats"> אפס גם את הסיווגים של תנועות הבנק לברירת המחדל: סיווג אוטומטי לפי כללי הסיווג בלבד. סיווגים שנקבעו ביד לתנועות בנק יימחקו.</label></p>
+      <div class="row" style="margin-top:12px"><button class="b red" id="rs-ok">איפוס</button><button class="b sec" id="rs-no">ביטול</button></div>`);
+    m.querySelector('#rs-no').onclick = () => m.remove();
+    m.querySelector('#rs-ok').onclick = () => {
+      const move = m.querySelector('#rs-move').checked, cats = m.querySelector('#rs-cats').checked;
+      let moved = 0, recat = 0;
+      if (move) {
+        const bankMonths = new Set(S.data.tx.filter(t => !t.del && isBankTx(t)).map(ymOf)), keep = new Set(impKeep());
+        S.data.tx.filter(t => !t.del && !t.arch && !isBankTx(t) && bankMonths.has(ymOf(t)) && !keep.has(ymOf(t))).forEach(t => { put('tx', { ...t, arch: true }); moved++; });
+      }
+      if (cats) S.data.tx.filter(t => !t.del && !t.sp && isBankTx(t)).forEach(t => { const c = ruleCat(t.note); if ((t.cat || '') !== c || (!!t.nb && !nbCats().includes(c))) { put('tx', withCat({ ...t }, c)); recat++; } });
+      m.remove(); toast(`הועברו ${moved} תנועות לדף הייבוא${cats ? `, אופסו ${recat} סיווגים` : ''}`); render();
+    };
   });
   $('#imp-back')?.addEventListener('click', () => { const l = picked(); if (!l.length) return toast('לא נבחר דבר'); l.forEach(t => { const { arch, ...rest } = t; put('tx', rest); }); toast(`הוחזרו ${l.length} תנועות לספירה`); render(); });
   $('#imp-del')?.addEventListener('click', async () => { const l = picked(); if (!l.length) return toast('לא נבחר דבר'); if (!await ask(`למחוק ${l.length} תנועות לצמיתות?`)) return; l.forEach(t => remove('tx', t.id)); toast('נמחקו'); render(); });
