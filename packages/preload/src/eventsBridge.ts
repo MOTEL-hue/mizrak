@@ -158,3 +158,7 @@ export async function budgetDocsAll(): Promise<Record<string, unknown>> {
 export async function budgetDocsBatch(ops: unknown[]): Promise<{ ok: boolean; n: number }> {
   return electron.ipcRenderer.invoke('budgetDocsBatch', ops);
 }
+
+export async function budgetRates(): Promise<{ prime: [string, number][]; fetched: string; error: string; builtin: boolean }> {
+  return electron.ipcRenderer.invoke('budgetRates');
+}

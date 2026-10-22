@@ -12,6 +12,7 @@ import { notifyProblem } from '../notify';
 import { summarizeFailures } from './bridgeFormat';
 import { ProgressTracker } from './syncProgress';
 import { syncDocs } from './budgetDocs/docSyncClient';
+import { BOI_RATES_URLS } from './budgetDocs/rates';
 import { logAppEvent } from '/@/logging/operationLogger';
 
 // הגשר לדף התקציב: התוכנה רצה ברקע, שואלת את האתר אם ביקשו סנכרון (או שהגיע הזמן לסנכרון אוטומטי),
@@ -31,12 +32,6 @@ async function call(base: string, token: string, path: string, body?: unknown) {
 }
 
 // ריבית בנק ישראל נמשכת מהמחשב שלך ונשלחת לתקציב, כי שרת בענן לא תמיד מצליח להביא אותה
-const BOI_RATES_URLS = [
-  'https://edge.boi.gov.il/FusionEdgeServer/ws/public/sdmxapi/rest/data/BIR?startPeriod=2015-01',
-  'https://edge.boi.gov.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/BIR/1.0/?format=csv&startperiod=2015-01',
-  'https://edge.boi.org.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/BIR/1.0/?format=csv&startperiod=2015-01',
-  'https://edge.boi.gov.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/BIR/1.0/?c%5BSERIES_CODE%5D=BIR_RATE&format=csv&startperiod=2015-01',
-];
 
 async function pushRates(base: string, token: string) {
   // הכתובת הראשונה שהשרת מקבל ממנה נתונים תקינים מנצחת

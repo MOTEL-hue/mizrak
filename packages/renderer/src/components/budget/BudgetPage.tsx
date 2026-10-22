@@ -1,4 +1,4 @@
-import { budgetDocsAll, budgetDocsBatch } from '#preload';
+import { budgetDocsAll, budgetDocsBatch, budgetRates } from '#preload';
 import { useEffect } from 'react';
 
 // דף התקציב רץ בתוך מסגרת (iframe) ומדבר עם המסמכים המקומיים במקום עם האתר.
@@ -8,6 +8,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 async function localApi(path: string, init?: RequestInit): Promise<Response> {
   if (path === 'all') return json(await budgetDocsAll());
   if (path === 'batch') return json(await budgetDocsBatch(JSON.parse(String(init?.body ?? '{}')).ops ?? []));
+  if (path === 'rates') return json(await budgetRates());
   return json({ error: 'לא זמין בתוכנה' }, 404);
 }
 

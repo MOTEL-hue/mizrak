@@ -1,4 +1,5 @@
 import { applyBatch, getAll } from '@/backend/budgetDocs/docApi';
+import { getRates } from '@/backend/budgetDocs/rates';
 import { type BatchOp } from '@/backend/budgetDocs/docView';
 import { pullMortgagesInApp, reportAppProgress, reportAppRun } from '@/backend/budgetBridge';
 import { loadMortgages } from '@/backend/import/mortgageStore';
@@ -69,6 +70,7 @@ const functions: Record<string, Listener> = {
   ) => Sentry.userReportProblem(title, body, logs, email, extra),
   // דף התקציב שבתוך התוכנה
   budgetDocsAll: () => getAll(),
+  budgetRates: () => getRates(),
   budgetDocsBatch: (_: unknown, ops: BatchOp[]) => applyBatch(ops),
   // Google Sheets
   getAllUserSpreadsheets: (_: unknown, credentials: Credentials) => getAllSpreadsheets(createClient(credentials)),
