@@ -11,6 +11,7 @@ import { userDataPath } from '@/app-globals';
 import { notifyProblem } from '../notify';
 import { summarizeFailures } from './bridgeFormat';
 import { ProgressTracker } from './syncProgress';
+import { syncDocs } from './budgetDocs/docSyncClient';
 import { logAppEvent } from '/@/logging/operationLogger';
 
 // הגשר לדף התקציב: התוכנה רצה ברקע, שואלת את האתר אם ביקשו סנכרון (או שהגיע הזמן לסנכרון אוטומטי),
@@ -115,6 +116,7 @@ export async function budgetTick() {
   try {
     const poll = await call(base, token, 'sync-poll');
     if (!poll.ok) return;
+    await syncDocs(base, token).catch((e) => logAppEvent('BUDGET_DOCS_SYNC_FAILED', { errorMessage: (e as Error).message }));
     const { pending, due, rates_due: ratesDue, mode } = (await poll.json()) as {
       pending?: boolean;
       due?: boolean;
