@@ -1,19 +1,14 @@
-import { useState } from 'react';
 import { StoresProvider } from '../store';
 import './App.css';
-import Body from './Body';
 import BudgetPage from './budget/BudgetPage';
-import TopBar from './topBar/TopBar';
+import SyncPage from './sync/SyncPage';
 
-export type Page = 'budget' | 'mizrak';
-
+// התקציב הוא התוכנה עצמה; "מזרק" (משיכת תנועות מהבנקים) הוא דף הסנכרון שבתוכו
 function App() {
-  const [page, setPage] = useState<Page>('budget');
   return (
     <StoresProvider>
       <div className="App">
-        <TopBar page={page} onPage={setPage} />
-        {page === 'budget' ? <BudgetPage /> : <Body />}
+        <BudgetPage sync={<SyncPage />} />
       </div>
     </StoresProvider>
   );
