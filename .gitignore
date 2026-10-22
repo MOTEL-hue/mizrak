@@ -67,3 +67,6 @@ transaction.csv
 
 # local cache
 /userData
+
+# קבצי דף התקציב שבתוך התוכנה חייבים להיכנס ל-git
+!/packages/renderer/public

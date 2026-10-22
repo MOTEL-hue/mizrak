@@ -1,0 +1,1445 @@
+'use strict';
+(function () {
+/* תקציב המשפחה — אפליקציה אחת, עובדת גם בלי אינטרנט. הנתונים נשמרים במכשיר ומסתנכרנים לשרת (אם הוגדר). */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const fmt = n => (Math.round((+n || 0) * 100) / 100).toLocaleString('he-IL') + ' ₪';
+const today = () => new Date().toISOString().slice(0, 10);
+
+/* ---------- שנים: עברית / לועזית ---------- */
+const GEM = [[400, 'ת'], [300, 'ש'], [200, 'ר'], [100, 'ק'], [90, 'צ'], [80, 'פ'], [70, 'ע'], [60, 'ס'], [50, 'נ'], [40, 'מ'], [30, 'ל'], [20, 'כ'], [10, 'י'], [9, 'ט'], [8, 'ח'], [7, 'ז'], [6, 'ו'], [5, 'ה'], [4, 'ד'], [3, 'ג'], [2, 'ב'], [1, 'א']];
+function hebLabel(y) { // 5787 -> תשפ"ז
+  let n = y % 1000, s = '';
+  for (const [v, l] of GEM) while (n >= v && !(n === 15 || n === 16)) { s += l; n -= v; }
+  if (n === 15) s += 'טו'; if (n === 16) s += 'טז';
+  return s.length > 1 ? s.slice(0, -1) + '"' + s.slice(-1) : s + "'";
+}
+function hebNum(label) { // תשפ"ה -> 5785
+  const L = String(label).trim(); if (!/^ת[א-ת"'״׳]*$/.test(L)) return 0;
+  let t = 0; for (const ch of L) { const g = GEM.find(x => x[1] === ch); if (g) t += g[0]; }
+  return 5000 + t;
+}
+const hebYearOf = d => +new Intl.DateTimeFormat('en-u-ca-hebrew', { year: 'numeric' }).formatToParts(new Date(d + 'T12:00:00')).find(p => p.type === 'year').value;
+const hebMonthOf = d => new Intl.DateTimeFormat('he-u-ca-hebrew', { month: 'long' }).format(new Date(d + 'T12:00:00'));
+const hebDateStr = d => new Intl.DateTimeFormat('he-u-ca-hebrew', { day: 'numeric', month: 'long' }).format(new Date(d + 'T12:00:00'));
+const yearOf = d => S.settings.calendar === 'heb' ? hebYearOf(d) : +d.slice(0, 4);
+const yearLabel = y => S.settings.calendar === 'heb' ? hebLabel(y) : String(y);
+const HEB_MONTHS = ['תשרי', 'חשון', 'כסלו', 'טבת', 'שבט', 'אדר', 'ניסן', 'אייר', 'סיון', 'תמוז', 'אב', 'אלול'];
+
+/* ---------- מצב ושמירה (השרת של האתר הראשי) ---------- */
+const COLL = ['plan', 'yearly', 'debts', 'accounts', 'tx', 'bizs', 'orders', 'bizExp', 'invoices', 'reminders', 'goals', 'assets', 'snaps', 'policies', 'rules'];
+const S = { settings: { family: '', calendar: 'heb', tithe: 10 }, data: Object.fromEntries(COLL.map(c => [c, []])) };
+let ready = false, pending = [], flushT = 0, flushing = false;
+const API = window.BUDGET_API;
+const csrf = () => (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || window.BUDGET_CSRF || '';
+// חיוב בנק על כרטיס אשראי / הוראת קבע לכרטיס הוא סיכום של הקניות שכבר נקלטו מהכרטיס עצמו. כשפירוט הכרטיס קיים (קניות בחודש שלפני החיוב), שורת הבנק לא נספרת כדי שלא יהיו כפילויות
+const CARD_COS = ['isracard', 'amex', 'visaCal', 'max', 'leumiCard'];
+const CARD_WORDS = [[/ישראכרט|ISRACARD/i, 'isracard'], [/אמריקן|אמקס|AMEX/i, 'amex'], [/כאל|ויזה|CAL\b/i, 'visaCal'], [/מקס|MAX\b|לאומי\s*קארד|דיינרס/i, 'max'], [/כרטיס(י)?\s*אשראי|אשראי|כרט\.?\s*אשר|דיי?רקט.{0,3}מצטבר|מצטבר/, '*']];
+const coOf = t => t.co || (String(t.id || '').startsWith('bk-') ? String(t.id).slice(3).split('_').slice(-2)[0] : '');
+let dupCache = { key: '', set: new Set() };
+function dupIds() {
+  const tx = S.data.tx, key = tx.length + ':' + tx.filter(x => x.del).length + ':' + tx.filter(x => x.keep).length + ':' + tx.filter(x => x.pd).length;
+  if (dupCache.key === key) return dupCache.set;
+  // התאמה מדויקת: חיוב הבנק שווה (עד אגורה) לסכום קניות הכרטיס שתאריך החיוב שלהן קרוב לתאריך שורת הבנק. בלי התאמה מדויקת שורת הבנק נשארת
+  const sums = {}, add = (k, v) => { sums[k] = (sums[k] || 0) + v; };
+  tx.forEach(t => {
+    const co = coOf(t); if (t.del || !t.pd || !CARD_COS.includes(co)) return;
+    const v = t.type === 'income' ? -t.amount : +t.amount; add(co + '|' + t.pd, v); if (t.ac) add(co + '|' + t.ac + '|' + t.pd, v);
+  });
+  const day = 864e5, set = new Set(), keys = Object.keys(sums);
+  tx.forEach(t => {
+    const co = coOf(t); if (t.del || t.keep || t.type === 'income' || !co || CARD_COS.includes(co)) return;
+    const hit = CARD_WORDS.find(([re]) => re.test(t.note || '')); if (!hit) return;
+    const d = Date.parse(t.date), want = +t.amount;
+    if (keys.some(k => { const p = k.split('|'), x = Date.parse(p[p.length - 1]); return (hit[1] === '*' || p[0] === hit[1]) && Math.abs(x - d) <= 4 * day && Math.abs(sums[k] - want) < 0.015; })) set.add(t.id);
+  });
+  dupCache = { key, set }; return set;
+}
+// תנועה שמסומנת כהעברה בין חשבונות (tr) לא נספרת, כמו חיוב בנק שמכוסה בפירוט הכרטיס
+// חודש התקציב של תנועה: החודש שנבחר ידנית (bm), ואחרת חודש התאריך
+const ymOf = t => t.bm || String((S.settings.dateBy === 'value' && (t.vd || t.pd)) || t.date).slice(0, 7);
+// חיובי משכנתא שירדו בפועל מהחשבון לפי חודש, להשוואה להחזר החודשי שחושב
+function mortgagePaid() {
+  const by = {};
+  live('tx').filter(t => t.type !== 'income' && /משכנת/.test(t.note || '')).forEach(t => { by[ymOf(t)] = (by[ymOf(t)] || 0) + +t.amount; });
+  return Object.keys(by).sort().slice(-3).map(ym => [ym, Math.round(by[ym] * 100) / 100]);
+}
+const mortgagePaidHtml = x => {
+  const p = mortgagePaid(); if (!p.length) return '';
+  const last = p[p.length - 1][1], diff = x.monthly && Math.abs(last - x.monthly) / x.monthly > 0.03;
+  return `<br>בפועל ירד מהחשבון: ${p.map(([ym, v]) => ym.slice(5) + '/' + ym.slice(0, 4) + ' ' + fmt(v)).join(' · ')}` + (diff ? ` <b style="color:#b42318">— שונה מההחזר שחושב (${fmt(x.monthly)}), ייתכן שהחישוב לא מדויק</b>` : ' <b style="color:#067647">— תואם להחזר שחושב</b>');
+};
+const hiddenBanks = () => S.settings.hiddenBanks || [];
+// קטגוריות מיוחדות: "שונות" נספרות כרגיל; "לא קשור" לא נספרות בהכנסות והוצאות (העברות בין חשבונות, הלוואה לחבר והחזרה)
+const nbCats = () => S.settings.nbCats || [], miscCats = () => S.settings.miscCats || ['שונות'];
+const EXTRA_G = ['שונות', 'לא קשור (לא נספר)'];
+const withCat = (t, cat) => ({ ...t, cat, ...(nbCats().includes(cat) ? { nb: true } : nbCats().includes(t.cat) && t.nb ? { nb: false } : {}) });
+const isDup = t => !!t.tr || !!t.sp || !!t.nb || dupIds().has(t.id) || (hiddenBanks().length > 0 && hiddenBanks().includes(bankOf(t)));
+const live = c => c === 'tx' ? S.data.tx.filter(x => !x.del && !isDup(x)) : S.data[c].filter(x => !x.del);
+function dbErr(e) { toast(e && (e.code === 403 || e.code === 401) ? 'אין הרשאה לשמור. התחבר מחדש.' : 'השמירה נכשלה, נסה שוב'); }
+async function flush() {
+  if (flushing || !pending.length) return; flushing = true;
+  const ops = pending.splice(0, 400);
+  try {
+    const r = await fetch(API + 'batch', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() }, body: JSON.stringify({ ops }) });
+    if (!r.ok) throw { code: r.status };
+  } catch (e) { pending.unshift(...ops); dbErr(e); flushing = false; return; }
+  flushing = false; if (pending.length) flush();
+}
+function queue(op) { pending.push(op); clearTimeout(flushT); flushT = setTimeout(flush, 200); }
+function put(c, item) {
+  item = { ...item, u: Date.now() }; const a = S.data[c], i = a.findIndex(x => x.id === item.id); if (i < 0) a.push(item); else a[i] = item;
+  queue({ c, id: item.id, data: item });
+}
+function remove(c, id) { S.data[c] = S.data[c].filter(x => x.id !== id); queue({ c, id, del: true }); }
+function save() { queue({ c: 'settings', id: 'main', data: { ...S.settings } }); }
+const dataKey = a => JSON.stringify([...(a || [])].sort((x, y) => String(x.id).localeCompare(String(y.id))));
+// quiet: רענון ברקע. לא מציירים מחדש אם כלום לא השתנה או אם המשתמש באמצע הקלדה/בחירה, כדי שהדף לא יקפוץ
+async function pull(quiet) {
+  const r = await fetch(API + 'all', { credentials: 'same-origin' });
+  if (r.status === 401 || r.status === 403) { location.reload(); return; }
+  if (!r.ok) throw { code: r.status }; const j = await r.json();
+  if (quiet && ready && (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || '') || COLL.every(c => dataKey(S.data[c]) === dataKey(j[c])))) return;
+  COLL.forEach(c => S.data[c] = j[c] || []); S.data.debts.filter(x => !x.del && !x.start).forEach(x => put('debts', { ...x, start: today().slice(0, 7) })); if (j.settings && j.settings.main) Object.assign(S.settings, j.settings.main);
+  ready = true; render(); loadPrime();
+}
+async function loadPrime() {
+  try {
+    const j = await (await fetch(API + 'rates', { credentials: 'same-origin' })).json();
+    S.primeInfo = j; S.autoPrime = (j.prime || []).map(x => x[0] + ' ' + x[1]).join('\n') || '';
+    if (S.autoPrime) render();
+  } catch (e) { S.primeInfo = { error: 'אין חיבור' }; }
+}
+let ME = { name: '', role: window.BUDGET_ROLE || 'admin' };
+const canEdit = () => ME.role !== 'view';
+function ask(msg, yes) { const m = modal(`<h2>${esc(msg)}</h2><div class="row"><button class="b red" id="y">כן</button><button class="b sec" id="n">לא</button></div>`); m.querySelector('#n').onclick = () => m.remove(); m.querySelector('#y').onclick = () => { m.remove(); yes(); }; }
+
+/* ---------- הגדרת שדות לכל טבלה ---------- */
+const PLAN_KINDS = { income: 'הכנסה קבועה', incomeVar: 'הכנסה משתנה', fixed: 'הוצאה קבועה', variable: 'הוצאה משתנה', consumption: 'צריכה שוטפת', charity: 'מעשרות וצדקה' };
+const CAL_FIELD = { k: 'cal', l: 'היום בחודש לפי לוח', t: 'select', o: { greg: 'לועזי', heb: 'עברי' } };
+const ASSET_KINDS = { real: 'נדל"ן', invest: 'השקעות וני"ע', pension: 'פנסיה וקרנות', deposit: 'פיקדון וחיסכון', crypto: 'קריפטו', cash: 'מזומן', lent: 'כסף שהלוויתי (חייבים לי)', borrowed: 'כסף שלקחתי (חוב זמני)', other: 'אחר' };
+const SCHEMA = {
+  plan: [{ k: 'kind', l: 'סוג', t: 'select', o: PLAN_KINDS }, { k: 'name', l: 'שם', t: 'text' }, { k: 'amount', l: 'סכום חודשי', t: 'number' }, { k: 'day', l: 'יום בחודש (לא חובה)', t: 'number' }, CAL_FIELD, { k: 'tith', l: 'חייב במעשר (להכנסה)', t: 'check' }, { k: 'mode', l: 'מעשרות וצדקה בלבד: להתנהג כמו', t: 'select', o: { variable: 'הוצאה משתנה (לפי מה שמוזן)', fixed: 'הוצאה קבועה (נספרת אוטומטית)' } }, { k: 'autoFrom', l: 'נספר אוטומטית מחודש (ריק = מתחילת השנה הנוכחית)', t: 'month' }, { k: 'active', l: 'פעיל', t: 'check', d: true }],
+  yearly: [{ k: 'month', l: 'חודש עברי', t: 'select', o: Object.fromEntries([...HEB_MONTHS, 'כללי'].map(m => [m, m])) }, { k: 'name', l: 'שם', t: 'text' }, { k: 'amount', l: 'סכום', t: 'number' }, { k: 'kind', l: 'סוג', t: 'select', o: { expense: 'הוצאה', income: 'הכנסה' } }, { k: 'year', l: 'שנה (ריק = כל השנים)', t: 'text' }],
+  debts: [{ k: 'name', l: 'שם המלווה', t: 'text' }, { k: 'kind', l: 'סוג', t: 'text' }, { k: 'balance', l: 'סכום החוב בתחילת ההחזרים', t: 'number' }, { k: 'monthly', l: 'החזר חודשי (נכלל אוטומטית בהוצאות)', t: 'number' }, { k: 'day', l: 'יום החזר בחודש (1-31)', t: 'number' }, CAL_FIELD, { k: 'start', l: 'תחילת ההחזרים (חודש)', t: 'month' }, { k: 'urgency', l: 'דחיפות (1 הכי דחוף)', t: 'number' }],
+  tx: [{ k: 'date', l: 'תאריך', t: 'date' }, { k: 'type', l: 'סוג', t: 'select', o: { expense: 'הוצאה', income: 'הכנסה' } }, { k: 'amount', l: 'סכום', t: 'number' }, { k: 'note', l: 'תיאור', t: 'text' }, { k: 'bank', l: 'חשבון או כרטיס', t: 'text' }, { k: 'tags', l: 'תגיות (מופרדות בפסיק)', t: 'text' }, { k: 'vd', l: 'תאריך ערך או חיוב (לא חובה)', t: 'date' }, { k: 'bm', l: 'חודש תקציב אחר (אם התנועה שייכת לחודש אחר)', t: 'month' }, { k: 'nb', l: 'לא נספרת בתקציב', t: 'check' }],
+  accounts: [{ k: 'name', l: 'שם החשבון', t: 'text' }, { k: 'balance', l: 'יתרה נוכחית', t: 'number' }, { k: 'min', l: 'התראה אם יורד מתחת ל', t: 'number' }, { k: 'max', l: 'התראה אם עולה מעל', t: 'number' }],
+  assets: [{ k: 'name', l: 'שם', t: 'text' }, { k: 'kind', l: 'סוג', t: 'select', o: ASSET_KINDS }, { k: 'value', l: 'שווי נוכחי', t: 'number' }, { k: 'due', l: 'תאריך החזר (לכסף שהלוויתי או לקחתי, לא חובה)', t: 'date' }, { k: 'note', l: 'הערה', t: 'text' }],
+  policies: [{ k: 'name', l: 'שם הפוליסה', t: 'text' }, { k: 'company', l: 'חברה', t: 'text' }, { k: 'premium', l: 'פרמיה', t: 'number' }, { k: 'per', l: 'תשלום', t: 'select', o: { month: 'חודשי', year: 'שנתי' } }, { k: 'renew', l: 'תאריך חידוש', t: 'date' }, { k: 'prev', l: 'פרמיה קודמת (לא חובה)', t: 'number' }],
+  goals: [{ k: 'name', l: 'שם היעד', t: 'text' }, { k: 'target', l: 'סכום היעד', t: 'number' }, { k: 'saved', l: 'כבר נחסך', t: 'number' }, { k: 'date', l: 'תאריך יעד', t: 'date' }, { k: 'rate', l: 'ריבית שנתית באחוזים (לא חובה)', t: 'number' }],
+  reminders: [{ k: 'title', l: 'תזכורת', t: 'text' }, { k: 'date', l: 'תאריך', t: 'date' }, { k: 'repeat', l: 'חזרה', t: 'select', o: { none: 'פעם אחת', monthly: 'כל חודש', yearly: 'כל שנה' } }, { k: 'amount', l: 'סכום (לא חובה)', t: 'number' }],
+  bizs: [{ k: 'name', l: 'שם העסק', t: 'text' }, { k: 'taxid', l: 'מספר עוסק', t: 'text' }, { k: 'phone', l: 'טלפון', t: 'text' }, { k: 'address', l: 'כתובת', t: 'text' }],
+  orders: [{ k: 'client', l: 'לקוח / אירוע', t: 'text' }, { k: 'date', l: 'תאריך', t: 'date' }, { k: 'when', l: 'מועד (טקסט חופשי)', t: 'text' }, { k: 'year', l: 'שנה', t: 'text' }, { k: 'amount', l: 'תשלום מהלקוח', t: 'number' }, { k: 'cost', l: 'הוצאות על ההזמנה', t: 'number' }, { k: 'paid', l: 'שולם', t: 'check' }, { k: 'note', l: 'הערות', t: 'text' }],
+  bizExp: [{ k: 'item', l: 'מוצר / הוצאה', t: 'text' }, { k: 'date', l: 'תאריך', t: 'date' }, { k: 'when', l: 'מועד (טקסט חופשי)', t: 'text' }, { k: 'year', l: 'שנה', t: 'text' }, { k: 'amount', l: 'סכום', t: 'number' }],
+  invoices: [{ k: 'kind', l: 'סוג מסמך', t: 'select', o: { 'חשבון עסקה': 'חשבון עסקה', 'חשבונית': 'חשבונית', 'קבלה': 'קבלה', 'חשבונית-קבלה': 'חשבונית-קבלה' } }, { k: 'client', l: 'לקוח', t: 'text' }, { k: 'date', l: 'תאריך', t: 'date' }, { k: 'desc', l: 'תיאור', t: 'text' }, { k: 'amount', l: 'סכום', t: 'number' }],
+};
+
+/* ---------- ממשק עזר ---------- */
+let tab = 'home', curBiz = null, curYear = null, curMonth = today().slice(0, 7), subTab = {};
+// שאלת כן/לא בחלון של האתר (confirm של הדפדפן נחסם בחלק מהמכשירים ואז השינוי מתבטל בשקט)
+function ask(msg) {
+  return new Promise(res => {
+    const m = document.createElement('div'); m.className = 'modal'; m.style.zIndex = 90;
+    m.innerHTML = `<div><p style="font-size:1.05rem;white-space:pre-line"></p><div class="row" style="margin-top:12px"><button class="b" id="ask-y">כן</button><button class="b sec" id="ask-n">לא</button></div></div>`;
+    m.querySelector('p').textContent = msg;
+    const end = v => { m.remove(); res(v); };
+    m.querySelector('#ask-y').onclick = () => end(true); m.querySelector('#ask-n').onclick = () => end(false);
+    m.onclick = e => { if (e.target === m) end(false); };
+    document.body.append(m);
+  });
+}
+// ההודעה מופיעה צמוד לכפתור שנלחץ (ואם לא נלחץ כפתור: בראש המסך)
+let lastBtn = null;
+const markNear = el => { lastBtn = { r: el.getBoundingClientRect(), t: Date.now() }; };
+document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('button'); lastBtn = b ? { r: b.getBoundingClientRect(), t: Date.now() } : null; }, true);
+function toast(t) {
+  const d = document.createElement('div'); d.className = 'alert'; d.textContent = t;
+  const near = lastBtn && Date.now() - lastBtn.t < 3000 && lastBtn.r.width > 0 ? lastBtn.r : null, w = Math.min(340, innerWidth - 24);
+  d.style.cssText = 'position:fixed;z-index:100;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.25);width:' + w + 'px;' + (near
+    ? 'left:' + Math.max(12, Math.min(innerWidth - w - 12, near.left + near.width / 2 - w / 2)) + 'px;' + (near.bottom + 90 > innerHeight ? 'bottom:' + (innerHeight - near.top + 8) + 'px' : 'top:' + (near.bottom + 8) + 'px')
+    : 'top:60px;inset-inline:16px;width:auto');
+  document.body.append(d); setTimeout(() => d.remove(), 3500);
+}
+function modal(html, onMount) { const m = document.createElement('div'); m.className = 'modal'; m.innerHTML = `<div>${html}</div>`; m.onclick = e => { if (e.target === m) m.remove(); }; document.body.append(m); onMount?.(m); return m; }
+function form(coll, item, after, extra = {}) {
+  const f = SCHEMA[coll], it = item || { id: uid(), ...extra };
+  const m = modal(`<h2>${item ? 'עריכה' : 'הוספה'}</h2>` + f.map(x => {
+    const v = it[x.k] ?? (x.d === true ? true : '');
+    if (x.t === 'select') return `<label>${x.l}</label><select data-k="${x.k}">${Object.entries(x.o).map(([a, b]) => `<option value="${esc(a)}" ${a == v ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>`;
+    if (x.t === 'check') return `<label><input type="checkbox" data-k="${x.k}" ${v ? 'checked' : ''}> ${x.l}</label>`;
+    return `<label>${x.l}</label><input data-k="${x.k}" type="${x.t === 'number' ? 'number' : x.t}" step="any" value="${esc(v)}">`;
+  }).join('') + `<div class="row" style="margin-top:14px"><button class="b" id="ok">שמירה</button><button class="b sec" id="no">ביטול</button>${item ? '<button class="b red sp" id="del" style="flex:0!important;margin-inline-start:auto">מחיקה</button>' : ''}</div>`);
+  m.querySelector('#no').onclick = () => m.remove();
+  if (item) m.querySelector('#del').onclick = () => ask('למחוק?', () => { remove(coll, it.id); m.remove(); render(); });
+  m.querySelector('#ok').onclick = () => {
+    f.forEach(x => { const e = m.querySelector(`[data-k="${x.k}"]`); it[x.k] = x.t === 'check' ? e.checked : x.t === 'number' ? (e.value === '' ? '' : +e.value) : e.value.trim(); });
+    if (coll === 'debts' && !it.start) it.start = today().slice(0, 7);
+    put(coll, it); m.remove(); after?.(it); render();
+  };
+}
+const delBtn = (coll, id) => `<button class="ic" data-del="${coll}:${id}" title="מחיקה">🗑️</button>`;
+function table(coll, cols, rows, o = {}) {
+  const sum = o.sum; const total = sum ? rows.reduce((a, r) => a + (+r[sum] || 0), 0) : null;
+  return `<div class="scroll"><table><tr>${cols.map(c => `<th>${c[1]}</th>`).join('')}<th></th></tr>` + rows.map(r =>
+    `<tr>${cols.map(c => `<td class="${c[2] || ''}">${c[3] ? c[3](r) : esc(r[c[0]] ?? '')}${c[2] === 'n' && !c[3] && r[c[0]] !== '' && r[c[0]] != null ? ' ₪' : ''}</td>`).join('')}<td>${canEdit() ? `<button class="ic" data-edit="${coll}:${r.id}">✏️</button>${delBtn(coll, r.id)}` : ''}</td></tr>`).join('') +
+    (sum ? `<tr class="tot"><td colspan="${cols.length}">סה"כ</td><td class="n">${fmt(total)}</td></tr>` : '') + `</table></div>`;
+}
+const addBtn = (coll, label = 'הוספה', extra = '') => canEdit() ? `<button class="b" data-add="${coll}" ${extra}>＋ ${label}</button>` : '';
+
+/* ---------- חישובים ---------- */
+function years() {
+  const s = new Set([yearOf(today())]);
+  live('tx').forEach(t => s.add(yearOf(t.date)));
+  [...live('orders'), ...live('bizExp'), ...live('yearly')].forEach(x => { const y = bizYear(x); if (y) s.add(y); });
+  return [...s].filter(Boolean).sort((a, b) => b - a);
+}
+function yrNum(t) { const h = hebNum(t); return !h ? 0 : S.settings.calendar === 'heb' ? h : h - 3760; }
+function bizYear(x) { return x.date ? yearOf(x.date) : yrNum(x.year); } // שנה של הזמנה/הוצאה: לפי תאריך, אחרת לפי הטקסט (למשל תשפ"ה)
+const isFixedPlan = p => p.kind === 'income' || p.kind === 'fixed' || (p.kind === 'charity' && p.mode === 'fixed');
+const monthlyPlan = () => live('plan').filter(p => p.active !== false);
+const planSum = k => monthlyPlan().filter(p => p.kind === k).reduce((a, p) => a + (+p.amount || 0), 0);
+const hebDayOf = d => +new Intl.DateTimeFormat('en-u-ca-hebrew', { day: 'numeric' }).format(new Date(d + 'T12:00:00'));
+const pad2 = n => String(n).padStart(2, '0');
+// תאריך (בלוח לועזי) של "יום בחודש" לפי הלוח שנבחר לפריט, בתוך חודש לועזי ym
+function payDate(it, ym) {
+  const last = new Date(+ym.slice(0, 4), +ym.slice(5, 7), 0).getDate(), day = Math.max(1, Math.min(31, +it.day || 1));
+  if (it.cal === 'heb') for (let n = 1; n <= last; n++) { const d = `${ym}-${pad2(n)}`; if (hebDayOf(d) === day) return d; }
+  return `${ym}-${pad2(Math.min(it.cal === 'heb' ? 28 : day, last))}`;
+}
+const addMonth = (ym, k) => { const d = new Date(+ym.slice(0, 4), +ym.slice(5, 7) - 1 + k, 1); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; };
+// חוב: ההחזרים שכבר הגיע מועדם, מה נשאר, וכמה תשלומים
+// ריבית לפי רשימת שינויים ("2025-03 4.5" בכל שורה): האחרונה שהגיע מועדה עד החודש, אחרת base
+function rateAt(text, ym, base) {
+  let r = base; (String(text || '').split('\n').map(l => l.trim().match(/^(\d{4}-\d{2})\s+(-?[\d.]+)/)).filter(Boolean).map(m => [m[1], +m[2]]).sort((a, b) => a[0].localeCompare(b[0]))).forEach(([m, v]) => { if (m <= ym) r = v; });
+  return r;
+}
+// ריבית פריים: מבנק ישראל (נמשכת מהשרת) כשהאפשרות פעילה ויש נתונים, אחרת מה שהוזן ידנית
+const primeText = () => S.settings.primeAuto !== false && S.autoPrime ? S.autoPrime : (S.settings.primeHist || '');
+const primeNow = () => rateAt(primeText(), today().slice(0, 7), 6);
+// מסלול ריבית אחד: לוח סילוקין (שפיצר) חודש אחר חודש. פריים: ריבית הפריים בחודש + מרווח; משתנה: לפי השינויים שהוזנו; קבועה: ריבית אחת
+function trackRows(t, start) {
+  const n = Math.min(600, Math.max(1, +t.months || 0)), rows = []; let bal = +t.principal || 0;
+  for (let i = 0; i < n && bal > 0.005; i++) {
+    const ym = addMonth(start, i), annual = t.type === 'prime' ? rateAt(primeText(), ym, 6) + (+t.rate || 0) : t.type === 'var' ? rateAt(t.changes, ym, +t.rate || 0) : (+t.rate || 0), r = Math.max(0, annual) / 1200;
+    bal *= 1 + (+t.link || 0) / 1200;
+    if (i < (+t.grace || 0) && i < n - 1) { // גרייס: ריבית בלבד, או גרייס מלא (בלי תשלום, והריבית מצטרפת לקרן)
+      const gi = bal * r; if (t.graceFull) { bal += gi; rows.push({ ym, pay: 0, interest: gi, bal }); } else rows.push({ ym, pay: gi, interest: gi, bal });
+      continue;
+    }
+    const interest = bal * r, left = n - i, pay = r ? bal * r / (1 - Math.pow(1 + r, -left)) : bal / left;
+    bal = left === 1 ? 0 : bal - (pay - interest); rows.push({ ym, pay, interest, bal });
+  }
+  return rows;
+}
+function debtTracksInfo(d) {
+  const now = today(), all = d.tracks.map(t => trackRows(t, d.start || now.slice(0, 7))), byYm = {};
+  if (d.closed) all.forEach((rs, k) => { // פירעון מוקדם: התשלום האחרון בחודש הפירעון כולל את כל היתרה (וקנס, פעם אחת)
+    const cut = rs.filter(r => r.ym <= d.closed); rs.length = 0; rs.push(...cut);
+    const last = rs[rs.length - 1]; if (last) { last.pay += last.bal + (k === 0 ? +d.closeFee || 0 : 0); last.bal = 0; }
+  });
+  all.forEach(rs => rs.forEach(r => { const o = byYm[r.ym] ||= { pay: 0, interest: 0 }; o.pay += r.pay; o.interest += r.interest; }));
+  const yms = Object.keys(byYm).sort(), pays = [], fut = []; 
+  yms.forEach(ym => { const date = payDate(d, ym); (date <= now ? pays : fut).push({ ym, date, amount: byYm[ym].pay, interest: byYm[ym].interest }); });
+  const rem = d.tracks.reduce((a, t, i) => { const rs = all[i].filter(r => payDate(d, r.ym) <= now); return a + (rs.length ? rs[rs.length - 1].bal : +t.principal || 0); }, 0);
+  return { rem, pays, left: fut.length, future: fut.reduce((a, x) => a + x.amount, 0), interest: fut.reduce((a, x) => a + x.interest, 0), next: fut[0]?.amount || 0, endYm: yms[yms.length - 1] || '' };
+}
+function debtInfo(d) {
+  if (d.tracks && d.tracks.length) return debtTracksInfo(d);
+  const bal0 = +d.balance || 0, m = +d.monthly || 0, now = today(), pays = [];
+  let rem = bal0;
+  if (m > 0 && d.start) for (let ym = d.start; ym <= now.slice(0, 7) && rem > 0 && pays.length < 600; ym = addMonth(ym, 1)) {
+    const date = payDate(d, ym); if (date > now) break;
+    const amount = Math.min(m, rem); pays.push({ ym, date, amount }); rem -= amount;
+  }
+  return { rem, pays, left: m > 0 && rem > 0 ? Math.ceil(rem / m) : 0 };
+}
+const debtCat = d => 'החזר חוב: ' + d.name;
+// הכנסה קבועה והוצאה קבועה נספרות מעצמן: נספרות כנכנסו/יצאו בסכום התכנון, אלא אם הוזנה תנועה אמיתית לאותו סעיף בחודש
+function autoTxs(months, real) {
+  const now = today().slice(0, 7), out = [];
+  monthlyPlan().filter(p => isFixedPlan(p) && +p.amount).forEach(p => months.forEach(ym => {
+    if (ym > now || ym < (p.autoFrom || now.slice(0, 4) + '-01')) return;
+    const type = p.kind === 'income' ? 'income' : 'expense';
+    if (real.some(t => ymOf(t) === ym && t.cat === p.name && (t.type === 'income') === (type === 'income'))) return;
+    out.push({ id: 'auto-' + p.id + ym, date: payDate(p, ym), type, cat: p.name, amount: +p.amount, note: 'אוטומטי', auto: true });
+  }));
+  live('debts').forEach(d => debtInfo(d).pays.forEach(x => {
+    if (!months.includes(x.ym) || real.some(t => ymOf(t) === x.ym && t.cat === debtCat(d))) return;
+    out.push({ id: 'auto-' + d.id + x.ym, date: x.date, type: 'expense', cat: debtCat(d), amount: x.amount, note: 'אוטומטי', auto: true });
+  }));
+  return out;
+}
+const debtMonthly = () => live('debts').reduce((a, d) => a + (debtInfo(d).rem > 0 ? debtInfo(d).next ?? (+d.monthly || 0) : 0), 0);
+function yearSummary(y) {
+  const inc = planSum('income') * 12, exp = (planSum('fixed') + planSum('variable') + planSum('consumption') + planSum('charity') + debtMonthly()) * 12;
+  const yi = live('yearly').filter(x => x.kind === 'income' && (!x.year || yrNum(x.year) === y || x.year == y)).reduce((a, x) => a + (+x.amount || 0), 0);
+  const ye = live('yearly').filter(x => x.kind !== 'income' && (!x.year || yrNum(x.year) === y || x.year == y)).reduce((a, x) => a + (+x.amount || 0), 0);
+  const biz = bizProfit(y);
+  const heb = S.settings.calendar === 'heb', gy = heb ? y - 3760 : y, all = live('tx'), real = all.filter(t => yearOf(t.date) === y);
+  const txs = [...real, ...autoTxs([...Array(heb ? 14 : 12)].map((_, i) => addMonth(`${heb ? gy - 1 : gy}-${heb ? '09' : '01'}`, i)), all).filter(t => yearOf(t.date) === y)];
+  const aI = txs.filter(t => t.type === 'income').reduce((a, t) => a + +t.amount, 0), aE = txs.filter(t => t.type !== 'income').reduce((a, t) => a + +t.amount, 0);
+  return { planInc: inc + yi, planExp: exp + ye, biz, aI, aE, txs };
+}
+function bizProfit(y, bizId) {
+  const o = live('orders').filter(x => bizYear(x) === y && (!bizId || x.biz === bizId)), e = live('bizExp').filter(x => bizYear(x) === y && (!bizId || x.biz === bizId));
+  const inc = o.reduce((a, x) => a + (+x.amount || 0), 0), c = o.reduce((a, x) => a + (+x.cost || 0), 0), ex = e.reduce((a, x) => a + (+x.amount || 0), 0);
+  return { inc, cost: c + ex, net: inc - c - ex, n: o.length, unpaid: o.filter(x => !x.paid).reduce((a, x) => a + (+x.amount || 0), 0) };
+}
+function alerts() {
+  const a = [];
+  live('accounts').forEach(c => {
+    if (c.min !== '' && c.min != null && +c.balance < +c.min) a.push(['r', `${c.name}: היתרה ${fmt(c.balance)} נמוכה מהמינימום ${fmt(c.min)}`]);
+    if (c.max !== '' && c.max != null && +c.balance > +c.max) a.push(['', `${c.name}: היתרה ${fmt(c.balance)} גבוהה מהמקסימום ${fmt(c.max)}`]);
+  });
+  // סעיף משתנה שההוצאה בו החודש עברה את התכנון (או קרובה אליו): ירוק עד 85%, אחר כך התראה, ומעל 100% אדום
+  const ymNow = today().slice(0, 7), spentNow = {};
+  live('tx').filter(t => t.type !== 'income' && ymOf(t) === ymNow).forEach(t => { spentNow[t.cat] = (spentNow[t.cat] || 0) + +t.amount; });
+  monthlyPlan().filter(p => !isFixedPlan(p) && p.kind !== 'income' && p.kind !== 'incomeVar' && +p.amount > 0).forEach(p => {
+    const sp = spentNow[p.name] || 0, pct = Math.round(sp / +p.amount * 100);
+    if (pct >= 100) a.push(['r', `חריגה בסעיף ${p.name}: ${fmt(sp)} מתוך ${fmt(p.amount)} (${pct}%)`]);
+    else if (pct >= 85) a.push(['', `${p.name}: ${fmt(sp)} מתוך ${fmt(p.amount)} (${pct}%), קרוב לתקרה`]);
+  });
+  const td = today(), dayNow = new Date(td + 'T12:00:00');
+  live('debts').filter(d => debtInfo(d).rem > 0 && +d.day >= 1 && +d.day <= 31).sort((x, y) => (x.urgency || 99) - (y.urgency || 99)).forEach(d => {
+    const ym0 = td.slice(0, 7), pd = [payDate(d, ym0), payDate(d, addMonth(ym0, 1))].find(x => x >= td), due = new Date(pd + 'T12:00:00');
+    const n = Math.round((due - dayNow) / 864e5);
+    if (n <= ((+d.urgency || 99) <= 2 ? 7 : 3)) a.push([n <= 1 ? 'r' : '', `תשלום חוב ל${d.name}${d.monthly ? ' (' + fmt(d.monthly) + ')' : ''} — ${n === 0 ? 'היום' : 'בעוד ' + n + ' ימים'}`]);
+  });
+  const fd = +S.settings.fillDay, nd = new Date(td + 'T12:00:00');
+  if (fd >= 1 && nd.getDate() >= fd) {
+    const pm = new Date(nd.getFullYear(), nd.getMonth() - 1, 15, 12), ym = `${pm.getFullYear()}-${String(pm.getMonth() + 1).padStart(2, '0')}`;
+    const miss = monthlyPlan().filter(q => !isFixedPlan(q) && !live('tx').some(x => ymOf(x) === ym && x.cat === q.name)).map(q => q.name);
+    if (miss.length) a.push(['', `הגיע הזמן למלא את ההוצאות וההכנסות המשתנות של ${ym.slice(5)}/${ym.slice(0, 4)} (חסרים: ${miss.slice(0, 5).join(', ')}${miss.length > 5 ? '…' : ''}). נכנסים ללשונית "חודש" ובוחרים את החודש.`]);
+  }
+  const old = iso => !iso || (new Date(td) - new Date(iso)) / 864e5 > 60, debtsT = live('debts').filter(x => debtInfo(x).rem > 0 && x.tracks && x.tracks.length);
+  debtsT.filter(x => x.tracks.some(k => k.type === 'var') && old(x.tracksUpd)).forEach(x => a.push(['', `עדכן את הריבית במסלולים המשתנים של ${x.name} (לא עודכנו מעל חודשיים) — כפתור 📈 בלשונית חובות`]));
+  if (debtsT.some(x => x.tracks.some(k => k.type === 'prime')) && !(S.settings.primeAuto !== false && S.autoPrime) && S.primeInfo !== undefined && old(S.settings.primeUpd)) a.push(['', 'עדכן את ריבית הפריים (המשיכה האוטומטית מבנק ישראל לא פעילה) — לשונית חובות']);
+  live('policies').forEach(p => { if (!p.renew) return; const n = Math.round((Date.parse(p.renew) - Date.parse(today())) / 864e5); if (n <= 30) a.push([n <= 7 ? 'r' : '', `ביטוח ${p.name}${p.company ? ' (' + p.company + ')' : ''}: ${n < 0 ? 'עבר מועד החידוש' : n === 0 ? 'מתחדש היום' : 'מתחדש בעוד ' + n + ' ימים'}, כדאי להשוות מחירים`]); });
+  const t = today(), soon = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+  live('reminders').forEach(r => { const n = nextDue(r); if (n && n <= soon) a.push([n <= t ? 'r' : '', `תזכורת: ${r.title}${r.amount ? ' (' + fmt(r.amount) + ')' : ''} — ${n === t ? 'היום' : n < t ? 'עבר מועד' : hebDateStr(n) + ' · ' + n.split('-').reverse().join('/')}`]); });
+  return a;
+}
+function nextDue(r) {
+  if (!r.date) return null; if (r.repeat === 'none' || !r.repeat) return r.date;
+  let d = new Date(r.date + 'T12:00:00'); const t = new Date(today() + 'T00:00:00'); let g = 0;
+  while (d < t && g++ < 600) { r.repeat === 'monthly' ? d.setMonth(d.getMonth() + 1) : d.setFullYear(d.getFullYear() + 1); }
+  return d.toISOString().slice(0, 10);
+}
+
+/* ---------- גרפים ---------- */
+function bars(items, o = {}) { // items: [{l, vals:[..]}], series: [{n,c}]
+  const mx = Math.max(1, ...items.flatMap(i => i.vals.map(Math.abs))), sr = o.series || [{ c: 'var(--pri)' }];
+  return `<div>${o.series ? `<div class="row mut" style="font-size:13px">${sr.map(s => `<span><b style="color:${s.c}">■</b> ${s.n}</span>`).join('')}</div>` : ''}` + items.map(i =>
+    `<div style="margin:8px 0"><div class="row"><span class="sp">${esc(i.l)}</span>${i.vals.map((v, k) => `<span class="mut" style="font-size:13px">${fmt(v)}</span>`).join(' · ')}</div>` +
+    i.vals.map((v, k) => `<div class="bar" style="margin-top:2px"><i style="width:${Math.abs(v) / mx * 100}%;background:${v < 0 ? 'var(--bad)' : sr[k].c}"></i></div>`).join('') + `</div>`).join('') + `</div>`;
+}
+
+/* ---------- מסכים ---------- */
+const TABS = [['home', '🏠', 'סקירה'], ['month', '📅', 'חודשי'], ['year', '🗓️', 'שנתי'], ['debts', '💳', 'חובות'], ['bank', '🏦', 'בנק'], ['txs', '🧾', 'תנועות'], ['cls', '🏷️', 'סיווג'], ['biz', '🎨', 'עסקים'], ['more', '⚙️', 'עוד']];
+const V = {};
+// מה אמור היה להיכנס ולצאת עד היום (חודשים שיש בהם נתונים, וגם החודש הנוכחי) מול מה שנכנס ויצא
+// מה שהוזן בפועל לפריט שנתי באותה שנה (לפי שם הסעיף)
+const yearlyActual = (r, y) => live('tx').filter(t => t.cat === r.name && yearOf(t.date) === y && (t.type === 'income') === (r.kind === 'income')).reduce((a, t) => a + +t.amount, 0);
+function toDate(y, s) {
+  const now = today().slice(0, 7), by = {};
+  if (yearOf(today()) === y) by[now] = { i: 0, e: 0 };
+  s.txs.forEach(t => { const m = t.date.slice(0, 7); if (m > now) return; const r = by[m] ||= { i: 0, e: 0 }; if (t.type === 'income') r.i += +t.amount; else r.e += +t.amount; });
+  const pI = planSum('income') + planSum('incomeVar'), pE = planSum('fixed') + planSum('variable') + planSum('consumption') + planSum('charity') + debtMonthly();
+  const ms = Object.keys(by).sort(), T = { pi: pI * ms.length, pe: pE * ms.length, i: 0, e: 0 };
+  ms.forEach(m => { T.i += by[m].i; T.e += by[m].e; });
+  return { by, ms, pI, pE, T };
+}
+function planVsActual(y, s) {
+  const { by, ms, pI, pE, T } = toDate(y, s);
+  const row = (l, pi, pe, i, e) => { const d = (i - e) - (pi - pe); return `<tr><td>${l}</td><td class="n">${fmt(pi)}</td><td class="n">${fmt(i)}</td><td class="n">${fmt(pe)}</td><td class="n">${fmt(e)}</td><td class="n ${d < 0 ? 'bad' : 'good'}">${d < 0 ? 'חסר ' : 'נשאר '}${fmt(Math.abs(d))}</td></tr>`; };
+  if (!ms.length) return '<span class="mut">עוד אין נתונים</span>';
+  return `<div class="scroll"><table><tr><th>חודש</th><th>הכנסה מתוכננת</th><th>נכנס</th><th>הוצאה מתוכננת</th><th>יצא</th><th>מול התכנון</th></tr>${ms.map(m => row(m.slice(5) + '/' + m.slice(0, 4), pI, pE, by[m].i, by[m].e)).join('')}<tr class="tot">${row('סה"כ', T.pi, T.pe, T.i, T.e).slice(4)}</table></div><p class="mut">התכנון לפי הסעיפים הנוכחיים. "חסר/נשאר" = (נכנס פחות יצא) מול (הכנסה פחות הוצאה מתוכננות).</p>`;
+}
+V.home = () => {
+  const y = curYear, s = yearSummary(y), al = alerts(), inc = s.planInc + s.biz.net, bal = inc - s.planExp;
+  const td = toDate(y, s), tdDiff = (td.T.i - td.T.e) - (td.T.pi - td.T.pe);
+  const debt = live('debts').reduce((a, d) => a + debtInfo(d).rem, 0), pay = debtMonthly();
+  const tithable = monthlyPlan().filter(p => p.kind === 'income' && p.tith).reduce((a, p) => a + +p.amount, 0) * 12, titheDue = tithable * S.settings.tithe / 100, charity = planSum('charity') * 12;
+  const ys = years().slice(0, 6).reverse().map(yy => { const q = yearSummary(yy); return { l: yearLabel(yy), vals: [q.aI + q.biz.net, q.aE] }; });
+  return `${al.map(a => `<div class="alert ${a[0]}">${esc(a[1])}</div>`).join('')}
+  <div class="grid"><div class="kpi"><small>הכנסות מתוכננות לשנה</small><strong>${fmt(inc)}</strong></div>
+  <div class="kpi"><small>הוצאות מתוכננות לשנה</small><strong>${fmt(s.planExp)}</strong></div>
+  <div class="kpi"><small>מאזן שנתי</small><strong class="${bal < 0 ? 'bad' : 'good'}">${fmt(bal)}</strong></div>
+  <div class="kpi"><small>מאזן חודשי ממוצע</small><strong class="${bal < 0 ? 'bad' : 'good'}">${fmt(bal / 12)}</strong></div></div>
+  <div class="card"><h2>בפועל השנה עד היום</h2><div class="grid"><div><small class="mut">נכנס</small><br><b class="good">${fmt(s.aI)}</b><br><small class="mut">אמור היה להיכנס עד היום ${fmt(td.T.pi)}</small></div><div><small class="mut">יצא</small><br><b class="bad">${fmt(s.aE)}</b><br><small class="mut">אמור היה לצאת עד היום ${fmt(td.T.pe)}</small></div><div><small class="mut">רווח עסקי</small><br><b>${fmt(s.biz.net)}</b></div></div>
+  <p><b class="${tdDiff < 0 ? 'bad' : 'good'}">מצב נוכחי מול התכנון: ${tdDiff < 0 ? 'חסר ' : 'נשאר '}${fmt(Math.abs(tdDiff))}</b></p></div>
+  <div class="card"><h2>תכנון מול בפועל — ${yearLabel(y)}</h2>${planVsActual(y, s)}</div>
+  <div class="card"><h2>חובות</h2>סה"כ ${fmt(debt)} · החזר חודשי ${fmt(pay)}${bal < 0 ? `<div class="alert r">אחרי החזרי החובות החודשיים חסרים ${fmt(-bal / 12)} בחודש</div>` : ''}</div>
+  <div class="card"><h2>מעשר</h2>הכנסות חייבות: ${fmt(tithable)} · חיוב ${S.settings.tithe}%: ${fmt(titheDue)} · צדקה מתוכננת: ${fmt(charity)}<br><b class="${charity >= titheDue ? 'good' : 'bad'}">${charity >= titheDue ? 'עודף' : 'חסר'}: ${fmt(Math.abs(charity - titheDue))}</b></div>
+  <div class="card"><h2>השוואה בין שנים (בפועל)</h2>${ys.length ? bars(ys, { series: [{ n: 'הכנסות', c: 'var(--good)' }, { n: 'הוצאות', c: 'var(--bad)' }] }) : '<span class="mut">עוד אין נתונים</span>'}</div>
+  <div class="card"><h2>תחזית</h2>${forecast()}</div>`;
+};
+function forecast() {
+  const y = curYear, s = yearSummary(y), net = (s.planInc + s.biz.net - s.planExp) / 12, ds = live('debts'), bal = ds.reduce((a, d) => a + debtInfo(d).rem, 0), pay = debtMonthly();
+  if (!bal) return '<span class="mut">אין חובות רשומים</span>';
+  const avail = net - 0; const extra = Math.max(0, avail);
+  const mo = pay + extra > 0 ? Math.ceil(bal / (pay + extra)) : null;
+  return `אם כל העודף החודשי (${fmt(extra)}) יופנה לחובות, יחד עם ההחזר הקיים (${fmt(pay)}): ${mo ? `חובות של ${fmt(bal)} יסתיימו בעוד ~${mo} חודשים (${(mo / 12).toFixed(1)} שנים)` : 'אין עודף להפניה'}.<br><span class="mut">הערכה פשוטה, בלי ריבית.</span>`;
+}
+V.month = () => {
+  const y = +curMonth.slice(0, 4), months = [...Array(12)].map((_, i) => `${y}-${String(i + 1).padStart(2, '0')}`);
+  const real = live('tx').filter(t => ymOf(t) === curMonth), txs = [...real, ...autoTxs([curMonth], real)];
+  const dbt = live('debts').filter(x => txs.some(t => t.cat === debtCat(x)) || (+x.monthly > 0 && debtInfo(x).rem > 0));
+  const names = [...new Set([...monthlyPlan().filter(p => p.kind !== 'income').map(p => p.name), ...live('debts').map(debtCat)])];
+  const act = n => txs.filter(t => t.type !== 'income' && t.cat === n).reduce((a, t) => a + +t.amount, 0);
+  const sub = subTab.month || 'expense', kinds = sub === 'income' ? ['income', 'incomeVar'] : ['fixed', 'variable', 'consumption', 'charity'];
+  const rows = monthlyPlan().filter(p => kinds.includes(p.kind));
+  const tI = txs.filter(t => t.type === 'income').reduce((a, t) => a + +t.amount, 0), tE = txs.filter(t => t.type !== 'income').reduce((a, t) => a + +t.amount, 0);
+  const other = txs.filter(t => t.type !== 'income' && !names.includes(t.cat)).reduce((a, t) => a + +t.amount, 0);
+  return `<div class="row"><select id="mpick" style="width:auto">${months.map(m => `<option value="${m}" ${m === curMonth ? 'selected' : ''}>${m.slice(5)}/${m.slice(0, 4)}</option>`).join('')}</select><span class="mut">${hebMonthOf(curMonth + '-15')} ${hebLabel(hebYearOf(curMonth + '-15'))}</span></div>
+  <div class="grid" style="margin-top:8px"><div class="kpi"><small>נכנס בפועל</small><strong class="good">${fmt(tI)}</strong></div><div class="kpi"><small>יצא בפועל</small><strong class="bad">${fmt(tE)}</strong></div><div class="kpi"><small>הפרש</small><strong>${fmt(tI - tE)}</strong></div></div>
+  <div class="tabs"><button class="${sub === 'expense' ? 'on' : ''}" data-sub="month:expense">הוצאות</button><button class="${sub === 'income' ? 'on' : ''}" data-sub="month:income">הכנסות</button></div>
+  ${[[true, 'קבועות — נספרות לבד, אין צורך למלא'], [false, 'משתנות — למלא בכל חודש']].map(([fx, title]) => { const rs = [...rows.filter(p => isFixedPlan(p) === fx), ...(fx && sub === 'expense' ? dbt.map(x => ({ id: x.id, name: debtCat(x), amount: debtInfo(x).next ?? x.monthly, debt: true })) : [])]; return rs.length || !fx ? `<div class="card"><h2>${sub === 'income' ? 'הכנסות' : 'הוצאות'} ${title}</h2>
+  <div class="scroll"><table><tr><th>סעיף</th><th>תכנון</th><th>בפועל</th><th></th><th></th></tr>${rs.map(p => {
+    const a = sub === 'income' ? txs.filter(t => t.type === 'income' && t.cat === p.name).reduce((x, t) => x + +t.amount, 0) : act(p.name), pct = p.amount ? Math.min(100, a / p.amount * 100) : 0;
+    const filled = real.some(t => t.cat === p.name);
+    return `<tr><td>${esc(p.name)}${!fx && !filled ? ' <span class="bad">●</span>' : ''}<div class="bar"><i style="width:${pct}%;background:${sub !== 'income' && a > p.amount ? 'var(--bad)' : 'var(--pri)'}"></i></div></td><td class="n">${fmt(p.amount)}</td><td class="n">${fmt(a)}</td><td>${canEdit() && !fx ? `${!filled && +p.amount ? `<button class="ic" data-done="${p.id}" title="בוצע כמתוכנן">✓</button>` : ''}<button class="ic" data-fill="${p.id}" title="סכום אחר">＋</button>` : ''}</td><td>${canEdit() ? `<button class="ic" data-edit="${p.debt ? 'debts' : 'plan'}:${p.id}">✏️</button>${delBtn(p.debt ? 'debts' : 'plan', p.id)}` : ''}</td></tr>`;
+  }).join('')}${!fx && sub === 'expense' && other ? `<tr><td>אחר (ללא סעיף בתקציב)</td><td></td><td class="n">${fmt(other)}</td><td></td><td></td></tr>` : ''}</table></div>${!fx ? addBtn('plan', 'סעיף חדש', `data-extra='${JSON.stringify({ kind: sub === 'income' ? 'incomeVar' : 'variable' })}'`) + addBtn('plan', 'סעיף קבוע חדש', `data-extra='${JSON.stringify({ kind: sub === 'income' ? 'income' : 'fixed' })}'`) : ''}</div>` : ''; }).join('')}
+  <div class="card"><h2>תנועות החודש</h2>${txs.length > real.length ? '<p class="mut">הכנסות והוצאות קבועות נספרות אוטומטית בסכום הקבוע ואינם מופיעים כאן. הזנת תנועה לסעיף מחליפה את הסכום האוטומטי.</p>' : ''}${table('tx', [['date', 'תאריך', '', r => r.date.slice(8) + '/' + r.date.slice(5, 7)], ['cat', 'סעיף'], ['note', 'הערה'], ['amount', 'סכום', 'n', r => (r.type === 'income' ? '+' : '−') + fmt(r.amount)]], real.sort((a, b) => b.date.localeCompare(a.date)))}</div>`;
+};
+V.year = () => {
+  const y = curYear, items = live('yearly').filter(x => !x.year || yrNum(x.year) === y || x.year == y);
+  const s = yearSummary(y), by = {}; items.forEach(x => (by[x.month] ||= []).push(x));
+  return `<div class="grid"><div class="kpi"><small>הוצאות שנתיות מתוכננות</small><strong>${fmt(items.filter(x => x.kind !== 'income').reduce((a, x) => a + +x.amount || 0, 0))}</strong></div><div class="kpi"><small>הכנסות שנתיות מתוכננות</small><strong>${fmt(items.filter(x => x.kind === 'income').reduce((a, x) => a + +x.amount || 0, 0))}</strong></div><div class="kpi"><small>לחסוך כל חודש לכיסוי</small><strong>${fmt(items.filter(x => x.kind !== 'income').reduce((a, x) => a + +x.amount || 0, 0) / 12)}</strong></div></div>
+  ${[...HEB_MONTHS, 'כללי'].filter(m => by[m]).map(m => `<div class="card"><h2>${m}</h2>${table('yearly', [['name', 'שם'], ['amount', 'סכום', 'n', r => (r.kind === 'income' ? '+' : '') + fmt(r.amount)], ['done', 'בפועל', 'n', r => { const a = yearlyActual(r, y); return a ? fmt(a) : (canEdit() ? `${+r.amount ? `<button class="ic" data-ydone="${r.id}" title="בוצע כמתוכנן">✓</button>` : ''}<button class="ic" data-yfill="${r.id}" title="סכום אחר">＋</button><span class="bad"> ●</span>` : ''); }]], by[m])}<div class="mut">סה"כ ${fmt(by[m].reduce((a, x) => a + (x.kind === 'income' ? -1 : 1) * (+x.amount || 0), 0))}</div></div>`).join('')}
+  ${addBtn('yearly', 'פריט שנתי')}`;
+};
+V.debts = () => {
+  const d = live('debts').sort((a, b) => (a.urgency || 99) - (b.urgency || 99)), inf = x => debtInfo(x), bal = d.reduce((a, x) => a + inf(x).rem, 0), pay = debtMonthly();
+  return `<div class="grid"><div class="kpi"><small>סה"כ חובות</small><strong class="bad">${fmt(bal)}</strong></div><div class="kpi"><small>החזר חודשי</small><strong>${fmt(pay)}</strong></div></div>
+  <p class="mut">ההחזר החודשי נרשם לבד בהוצאות בכל חודש ביום ההחזר, והיתרה והתשלומים שנותרו מתעדכנים אוטומטית.</p>
+  ${canEdit() ? '<p><button class="b sec" id="mortgage-import">📥 ייבוא פירוט משכנתא מקובץ</button></p>' : ''}
+  <div class="card">${table('debts', [['name', 'מלווה'], ['kind', 'סוג'], ['balance', 'נותר', 'n', r => fmt(inf(r).rem)], ['monthly', 'חודשי', 'n', r => fmt(inf(r).next ?? r.monthly)], ['day', 'יום החזר', '', r => r.day ? (r.cal === 'heb' ? 'ה׳ ' : '') + esc(r.day) : ''], ['left', 'תשלומים שנותרו', '', r => inf(r).left || (inf(r).rem > 0 ? '' : '✓')], ['urgency', 'דחיפות'], ['tr', 'ריביות', '', r => canEdit() ? `<button class="ic" data-tracks="${r.id}" title="מסלולי ריבית">📈</button>${r.tracks && r.tracks.length && debtInfo(r).rem > 0 ? `<button class="ic" data-payoff="${r.id}" title="פירעון מוקדם">🏁</button>` : ''}` : '']], d)}${addBtn('debts', 'חוב')}</div>
+  ${d.filter(x => x.tracks && x.tracks.length).map(x => { const i = inf(x); return `<div class="card"><h2>${esc(x.name)} — מסלולי ריבית</h2>נותר לפירעון (קרן): <b>${fmt(i.rem)}</b><br>סה"כ החזרים עתידיים: <b>${fmt(i.future)}</b> (מזה ריבית ${fmt(i.interest)})<br>תשלום קרוב: ${fmt(i.next)} · עוד ${i.left} תשלומים${i.endYm ? ' · עד ' + i.endYm.slice(5) + '/' + i.endYm.slice(0, 4) : ''}${mortgagePaidHtml(x)}<br><span class="mut">${x.tracks.map(t => esc(t.name || 'מסלול') + ' ' + ({ prime: 'פריים' + (+t.rate ? (t.rate > 0 ? '+' : '') + t.rate : ''), var: 'משתנה ' + rateAt(t.changes, today().slice(0, 7), +t.rate || 0) + '%', fixed: 'קבועה ' + (+t.rate || 0) + '%' }[t.type])).join(' · ')}</span></div>`; }).join('')}
+  <div class="card"><h2>ריבית פריים</h2><p class="mut">חלה על כל מסלולי הפריים בכל החובות. שורה לכל שינוי: חודש וריבית, למשל <b>2026-01 5.5</b>. כרגע: <b>${primeNow()}%</b>.</p><label><input type="checkbox" id="prime-auto" ${S.settings.primeAuto !== false ? 'checked' : ''}> למשוך אוטומטית מבנק ישראל (ריבית בנק ישראל + 1.5%)</label><p class="mut">${S.autoPrime ? (S.primeInfo.builtin ? 'לא הצלחנו למשוך מבנק ישראל, ולכן מוצגת הריבית שנשמרה במערכת (פריים כיום ' + primeNow() + '%). אפשר לתקן ידנית בתיבה למטה: מבטלים את הסימון, כותבים שורה לכל שינוי ושומרים.' : 'מקור: בנק ישראל, עודכן ' + esc((S.primeInfo.fetched || '').slice(0, 10))) : S.primeInfo ? 'המשיכה האוטומטית לא הצליחה' + (S.primeInfo.error ? ' (' + esc(S.primeInfo.error) + ')' : '') + '. משתמשים במה שהוזן ידנית:' : 'טוען...'}</p><textarea id="prime-hist" rows="4" style="width:100%">${esc(S.settings.primeHist || '')}</textarea>${canEdit() ? '<div class="row" style="margin-top:8px"><button class="b" id="prime-save">שמירה</button></div>' : ''}</div><div class="card"><h2>תחזית</h2>${forecast()}</div>`;
+};
+V.bank = () => {
+  const acc = live('accounts');
+  return `${alerts().filter(a => a[1].includes('היתרה')).map(a => `<div class="alert ${a[0]}">${esc(a[1])}</div>`).join('')}
+  <div class="card">${table('accounts', [['name', 'חשבון'], ['balance', 'יתרה', 'n', r => `<b class="${+r.balance < 0 ? 'bad' : ''}">${fmt(r.balance)}</b>`], ['min', 'מינימום', 'n'], ['max', 'מקסימום', 'n']], acc)}${addBtn('accounts', 'חשבון בנק')}</div>
+  <p class="mut">התראות מוצגות בראש המסך ובמסך הסקירה. כשמזינים תנועה ובוחרים חשבון — היתרה מתעדכנת אוטומטית.</p>${netWorthCard()}`;
+};
+V.biz = () => {
+  const bz = live('bizs'); if (!curBiz || !bz.find(b => b.id === curBiz)) curBiz = bz[0]?.id;
+  const y = curYear, o = live('orders').filter(x => x.biz === curBiz), e = live('bizExp').filter(x => x.biz === curBiz);
+  const yo = o.filter(x => bizYear(x) === y), ye = e.filter(x => bizYear(x) === y), p = bizProfit(y, curBiz), sub = subTab.biz || 'orders';
+  const all = years().slice(0, 8).reverse().map(yy => { const q = bizProfit(yy, curBiz); return { l: yearLabel(yy), vals: [q.net] }; }).filter(i => i.vals[0]);
+  const unk = o.filter(x => !bizYear(x)).length + e.filter(x => !bizYear(x)).length;
+  return `<div class="tabs">${bz.map(b => `<button class="${b.id === curBiz ? 'on' : ''}" data-biz="${b.id}">${esc(b.name)}</button>`).join('')}${addBtn('bizs', 'עסק חדש')}</div>
+  ${!curBiz ? '<p class="mut">הוסף עסק כדי להתחיל.</p>' : `
+  <div class="grid"><div class="kpi"><small>הכנסות ${yearLabel(y)}</small><strong>${fmt(p.inc)}</strong></div><div class="kpi"><small>הוצאות</small><strong>${fmt(p.cost)}</strong></div><div class="kpi"><small>רווח</small><strong class="${p.net < 0 ? 'bad' : 'good'}">${fmt(p.net)}</strong></div><div class="kpi"><small>ממוצע חודשי</small><strong>${fmt(p.net / 12)}</strong></div><div class="kpi"><small>טרם שולם</small><strong class="bad">${fmt(p.unpaid)}</strong></div></div>
+  <div class="tabs">${[['orders', 'הזמנות'], ['exp', 'הוצאות'], ['inv', 'חשבוניות וקבלות'], ['cmp', 'השוואת שנים']].map(t => `<button class="${sub === t[0] ? 'on' : ''}" data-sub="biz:${t[0]}">${t[1]}</button>`).join('')}<button class="on" data-edit="bizs:${curBiz}" style="background:var(--card);color:var(--ink)">✏️ פרטי עסק</button></div>
+  ${unk ? `<div class="alert">יש ${unk} רשומות בלי שנה מזוהה — הן לא נספרות בשום שנה. ערוך אותן והוסף תאריך.</div>` : ''}
+  ${sub === 'orders' ? `<div class="card">${table('orders', [['client', 'לקוח'], ['when', 'מועד', '', r => esc(r.date ? r.date.split('-').reverse().join('/') : r.when)], ['amount', 'תשלום', 'n'], ['cost', 'הוצאות', 'n'], ['paid', 'שולם', '', r => r.paid ? '✓' : '<b class="bad">✗</b>'], ['inv', '', '', r => canEdit() ? `<button class="ic" data-inv="${r.id}" title="הפקת מסמך">🧾</button>` : '']], yo, { sum: 'amount' })}${addBtn('orders', 'הזמנה', `data-extra='${JSON.stringify({ biz: curBiz })}'`)}</div>` : ''}
+  ${sub === 'exp' ? `<div class="card">${table('bizExp', [['item', 'הוצאה'], ['when', 'מועד', '', r => esc(r.date ? r.date.split('-').reverse().join('/') : r.when)], ['amount', 'סכום', 'n']], ye, { sum: 'amount' })}${addBtn('bizExp', 'הוצאה', `data-extra='${JSON.stringify({ biz: curBiz })}'`)}</div>` : ''}
+  ${sub === 'inv' ? `<div class="card">${table('invoices', [['num', 'מספר'], ['kind', 'סוג'], ['client', 'לקוח'], ['date', 'תאריך'], ['amount', 'סכום', 'n'], ['p', '', '', r => `<button class="ic" data-print="${r.id}">🖨️</button>`]], live('invoices').filter(x => x.biz === curBiz).sort((a, b) => (b.num || 0) - (a.num || 0)))}${addBtn('invoices', 'מסמך חדש', `data-extra='${JSON.stringify({ biz: curBiz, date: today() })}'`)}<p class="mut">לחץ 🧾 ליד הזמנה להפקת מסמך. 🖨️ להדפסה או שמירה כ-PDF. חשוב: בדוק עם רואה החשבון אם נדרש מספר הקצאה או תוכנה מאושרת.</p></div>` : ''}
+  ${sub === 'cmp' ? `<div class="card"><h2>רווח לפי שנה</h2>${all.length ? bars(all) : '<span class="mut">אין נתונים</span>'}</div>` : ''}`}`;
+};
+/* ---------- שווי נקי: נכסים פחות התחייבויות, צילומי מצב לגרף מגמה, וקרן חירום ---------- */
+function netWorth() {
+  const accs = live('accounts'), as = live('assets'), pos = accs.reduce((a, x) => a + Math.max(0, +x.balance || 0), 0), neg = accs.reduce((a, x) => a + Math.max(0, -(+x.balance || 0)), 0);
+  const assets = pos + as.filter(x => x.kind !== 'borrowed').reduce((a, x) => a + (+x.value || 0), 0);
+  const loans = live('debts').reduce((a, d) => a + (debtInfo(d).rem || 0), 0), temp = as.filter(x => x.kind === 'borrowed').reduce((a, x) => a + (+x.value || 0), 0);
+  const liq = pos + as.filter(x => x.kind === 'cash' || x.kind === 'deposit').reduce((a, x) => a + (+x.value || 0), 0);
+  const monthly = monthlyPlan().filter(p => p.kind !== 'income' && p.kind !== 'incomeVar').reduce((a, p) => a + (+p.amount || 0), 0) + live('debts').reduce((a, d) => a + (debtInfo(d).rem > 0 ? +d.monthly || 0 : 0), 0);
+  return { assets, liab: loans + temp + neg, net: assets - loans - temp - neg, liq, monthly, loans, temp, neg };
+}
+function netWorthCard() {
+  if (ME.role === 'home') return '';
+  const n = netWorth(), snaps = live('snaps').sort((a, b) => String(a.date).localeCompare(b.date)), efM = +S.settings.efMonths || 3, goal = n.monthly * efM, lent = live('assets').filter(x => x.kind === 'lent');
+  const row = a => `<tr><td>${esc(a.name)}${a.due ? `<br><span class="mut">עד ${esc(a.due.split('-').reverse().join('/'))}</span>` : ''}</td><td>${esc(ASSET_KINDS[a.kind] || '')}</td><td class="n">${fmt(a.value)}</td><td>${canEdit() ? `<button class="ic" data-edit="assets:${esc(a.id)}">✏️</button>${delBtn('assets', esc(a.id))}` : ''}</td></tr>`;
+  return `<div class="card"><h2>שווי נקי</h2>
+  <div class="grid"><div class="kpi"><small>נכסים</small><strong class="good">${fmt(n.assets)}</strong></div><div class="kpi"><small>התחייבויות</small><strong class="bad">${fmt(n.liab)}</strong></div><div class="kpi"><small>שווי נקי</small><strong class="${n.net < 0 ? 'bad' : 'good'}">${fmt(n.net)}</strong></div></div>
+  <p class="mut">נכסים: יתרות בנק חיוביות ומה שמוגדר למטה. התחייבויות: חובות וסכום ההלוואות שנותר, יתרות בנק במינוס, וכסף שלקחת.</p>
+  ${live('assets').length ? `<div class="scroll"><table><tr><th>שם</th><th>סוג</th><th>שווי</th><th></th></tr>${live('assets').map(row).join('')}</table></div>` : ''}${addBtn('assets', 'נכס או כסף שלוויתי')}
+  ${canEdit() ? '<button class="b sec" id="nw-snap">📸 שמירת צילום מצב להיום</button>' : ''}
+  ${snaps.length > 1 ? `<h3>מגמה</h3>${bars(snaps.slice(-12).map(x => ({ l: String(x.date).split('-').reverse().join('/'), vals: [+x.net || 0] })))}` : snaps.length ? '<p class="mut">נשמר צילום מצב אחד. אחרי עוד אחד יופיע גרף מגמה.</p>' : '<p class="mut">שומרים צילום מצב מדי פעם (למשל פעם בחודש), ומהם נבנה גרף מגמה.</p>'}
+  ${lent.length ? `<p>כסף שמגיע לך: <b>${fmt(lent.reduce((a, x) => a + (+x.value || 0), 0))}</b></p>` : ''}
+  <h3>קרן חירום</h3><p>הוצאות קבועות ומתוכננות בחודש: ${fmt(n.monthly)}. יעד: <input id="ef-m" type="number" min="1" max="24" value="${efM}" style="width:60px"> חודשי מחיה = ${fmt(goal)}. נזיל (בנק, מזומן ופיקדונות): <b>${fmt(n.liq)}</b> — ${goal > 0 ? (n.liq >= goal ? '<span class="good">מוגן</span>' : `<span class="bad">חסר ${fmt(goal - n.liq)}</span>`) : ''}</p></div>`;
+}
+const askCard = () => `<div class="card"><h2>שאל את הבינה על התקציב</h2><p class="mut">הבינה מקבלת רק סיכום מספרי של שלושת החודשים האחרונים לפי סעיף, בלי תיאורי תנועות ובלי שמות עסקים. היא משתמשת במפתח האישי שלך מצ'אט הבינה של האתר.</p>
+  <div class="row"><input id="ai-q" placeholder="למשל: איפה אפשר לחסוך החודש?" style="flex:1;min-width:160px" maxlength="400"><button class="b" id="ai-go">שאל</button></div>
+  <div class="row" style="margin-top:6px">${['כמה הוצאתי על אוכל החודש?', 'באיזה סעיף אני מוציא הכי הרבה?', 'תן המלצות לחיסכון'].map(q => `<button class="b sec" data-aiq="${esc(q)}">${esc(q)}</button>`).join('')}</div><div id="ai-a" style="white-space:pre-wrap;margin-top:10px"></div></div>`;
+async function askAI(q) {
+  const out = $('#ai-a'); if (!out) return; out.textContent = 'חושב…';
+  try {
+    const r = await fetch(API + 'ask', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() }, body: JSON.stringify({ q }) });
+    const j = await r.json().catch(() => ({})); out.textContent = j.answer || j.error || 'לא התקבלה תשובה';
+  } catch { out.textContent = 'אין חיבור, נסה שוב'; }
+}
+function policiesCard() {
+  const t = today(), list = live('policies').sort((a, b) => String(a.renew).localeCompare(b.renew)), yearly = p => (+p.premium || 0) * (p.per === 'month' ? 12 : 1);
+  const rows = list.map(p => { const days = p.renew ? Math.round((Date.parse(p.renew) - Date.parse(t)) / 864e5) : null, chg = +p.prev > 0 ? Math.round(((+p.premium) / (+p.prev) - 1) * 100) : null;
+    return `<tr><td>${esc(p.name)}<br><span class="mut">${esc(p.company || '')}</span></td><td class="n">${fmt(p.premium)} ${p.per === 'month' ? 'לחודש' : 'לשנה'}${chg ? `<br><span class="${chg > 0 ? 'bad' : 'good'}">${chg > 0 ? 'התייקר' : 'הוזל'} ב-${Math.abs(chg)}%</span>` : ''}</td><td>${p.renew ? esc(p.renew.split('-').reverse().join('/')) : ''}${days !== null ? `<br><span class="${days < 0 ? 'bad' : days <= 30 ? 'warn' : 'mut'}">${days < 0 ? 'עבר המועד' : 'בעוד ' + days + ' ימים'}</span>` : ''}</td><td>${canEdit() ? `<button class="ic" data-renew="${esc(p.id)}" title="חידוש">🔄</button><button class="ic" data-edit="policies:${esc(p.id)}">✏️</button>${delBtn('policies', esc(p.id))}` : ''}</td></tr>`; }).join('');
+  return `<div class="card"><h2>ביטוחים</h2>${list.length ? `<p>עלות שנתית כוללת: <b>${fmt(list.reduce((a, p) => a + yearly(p), 0))}</b></p><div class="scroll"><table><tr><th>פוליסה</th><th>פרמיה</th><th>חידוש</th><th></th></tr>${rows}</table></div>` : '<p class="mut">אפשר לרשום ביטוחים עם תאריך חידוש, ולקבל התראה חודש לפני.</p>'}${addBtn('policies', 'ביטוח')}</div>`;
+}
+// כמה צריך להפקיד כל חודש כדי להגיע ליעד בתאריך: הפקדה בסוף כל חודש, עם ריבית חודשית אם הוגדרה
+function goalMonthly(g, now = today()) {
+  const left = Math.max(0, (+g.target || 0) - (+g.saved || 0)); if (!left) return 0;
+  const n = Math.round((Date.parse(g.date) - Date.parse(now)) / (30.44 * 864e5)); if (!(n > 0)) return left;
+  const i = (+g.rate || 0) / 1200, grown = (+g.saved || 0) * Math.pow(1 + i, n), need = Math.max(0, (+g.target || 0) - grown);
+  return Math.ceil(i > 0 ? need * i / (Math.pow(1 + i, n) - 1) : need / n);
+}
+const goalsCard = () => `<div class="card"><h2>יעדי חיסכון</h2>${live('goals').length ? `<div class="scroll"><table><tr><th>יעד</th><th>נחסך</th><th>התקדמות</th><th>להפקיד בחודש</th><th></th></tr>${live('goals').map(g => { const pct = Math.min(100, Math.round((+g.saved || 0) / (+g.target || 1) * 100)); return `<tr><td>${esc(g.name)}${g.date ? `<br><span class="mut">עד ${esc(g.date.split('-').reverse().join('/'))}</span>` : ''}</td><td class="n">${fmt(g.saved || 0)} מתוך ${fmt(g.target)}</td><td>${pct}%</td><td class="n">${pct >= 100 ? '✅' : fmt(goalMonthly(g))}</td><td>${canEdit() ? `<button class="ic" data-deposit="${esc(g.id)}" title="הפקדה">＋</button><button class="ic" data-edit="goals:${esc(g.id)}">✏️</button>${delBtn('goals', esc(g.id))}` : ''}</td></tr>`; }).join('')}</table></div>` : '<p class="mut">אפשר להגדיר יעד, למשל חופשה או קרן חירום, ולראות כמה להפקיד בכל חודש כדי להגיע אליו בזמן.</p>'}${addBtn('goals', 'יעד')}</div>`;
+/* ---------- בריאות מערכת: מה מחובר, מתי הסנכרון האחרון, וכמה מהתנועות מסווגות ---------- */
+let healthTried = false;
+function healthCard() {
+  const tx = S.data.tx.filter(x => !x.del), real = tx.filter(t => !isDup(t));
+  const cards = new Set(), banks = new Set();
+  tx.forEach(t => { const co = coOf(t); if (!co) return; (CARD_COS.includes(co) ? cards : banks).add(co + (t.ac ? '·' + t.ac : '')); });
+  const accts = live('accounts').filter(a => String(a.id).startsWith('acct-bk-'));
+  const uncat = real.filter(t => !t.cat).length, pct = real.length ? Math.round(100 * (real.length - uncat) / real.length) : 0;
+  const last = tx.map(t => String(t.date)).sort().pop(), dups = tx.length - real.length;
+  const mort = live('debts').find(d => d.kind === 'משכנתא');
+  const row = (ok, label, val) => `<tr><td>${ok === null ? '' : ok ? '✅' : '⚠️'}</td><td>${label}</td><td>${val}</td></tr>`;
+  const st = SYNC ? (SYNC.status === 'ok' ? 'הושלם' : SYNC.status === 'partial' ? 'הושלם חלקית' : SYNC.status === 'error' ? 'נכשל' : SYNC.status === 'running' ? 'רץ עכשיו' : 'עוד לא היה') : 'טוען...';
+  return `<div class="card"><h2>🩺 בריאות המערכת</h2><div class="scroll"><table>
+    ${row(SYNC ? !!SYNC.online : null, 'מזרק במחשב', SYNC ? (SYNC.online ? 'פועלת' : 'לא פועלת כרגע') : '...')}
+    ${row(SYNC ? SYNC.status === 'ok' : null, 'סנכרון אחרון', `${st}${SYNC && SYNC.run_finished_at ? ' · ' + when(SYNC.run_finished_at) : ''}`)}
+    ${row(banks.size > 0, 'חשבונות בנק עם תנועות', banks.size ? [...banks].map(b => esc((BANK_NAMES[b.split('·')[0]] || b.split('·')[0]) + (b.includes('·') ? ' ·' + b.split('·')[1] : ''))).join(', ') : 'אין')}
+    ${row(accts.length > 0, 'יתרות בנק מעודכנות', accts.length ? `${accts.length} חשבונות · עודכן ${when(new Date(Math.max(...accts.map(a => +a.u || 0))).toISOString())}` : 'עוד לא נשלחו יתרות')}
+    ${row(cards.size > 0, 'כרטיסי אשראי עם תנועות', cards.size ? [...cards].map(b => esc((BANK_NAMES[b.split('·')[0]] || b.split('·')[0]) + (b.includes('·') ? ' ·' + b.split('·')[1] : ''))).join(', ') : 'אין')}
+    ${row(!!mort, 'משכנתא', mort ? `מעודכנת ${mort.tracksUpd ? mort.tracksUpd.split('-').reverse().join('/') : ''}` : 'לא נמשכה')}
+    ${row(pct >= 80, 'תנועות מסווגות', `${pct}% (${uncat} בלי סעיף מתוך ${real.length})`)}
+    ${row(null, 'תנועה אחרונה', last ? last.slice(0, 10).split('-').reverse().join('/') : '—')}
+    ${row(null, 'חיובי כרטיס שלא נספרים (כפילות)', String(dups))}
+  </table></div><p class="mut">⚠️ מסמן מקום שכדאי לטפל בו. סנכרון חדש: בלשונית "תנועות".</p></div>`;
+}
+V.more = () => {
+  const st = S.settings;
+  return `${healthCard()}${askCard()}${policiesCard()}${goalsCard()}<div class="card"><h2>תזכורות</h2>${table('reminders', [['title', 'מה'], ['date', 'מתי', '', r => { const n = nextDue(r); return n ? hebDateStr(n) + ' · ' + n.split('-').reverse().join('/') : ''; }], ['repeat', 'חזרה', '', r => ({ none: 'פעם', monthly: 'חודשי', yearly: 'שנתי' }[r.repeat || 'none'])]], live('reminders'))}${addBtn('reminders', 'תזכורת')}</div>
+  <div class="card"><h2>הגדרות</h2><label for="s-fam">שם המשפחה</label><input id="s-fam" value="${esc(st.family)}">
+  <label for="s-cal">ספירת שנים</label><select id="s-cal"><option value="heb" ${st.calendar === 'heb' ? 'selected' : ''}>עברית (תשפ"ז)</option><option value="greg" ${st.calendar === 'greg' ? 'selected' : ''}>לועזית (2026)</option></select>
+  <label for="s-fill">תזכורת חודשית למלא הוצאות והכנסות משתנות: ביום בחודש (ריק = בלי תזכורת)</label><input id="s-fill" type="number" min="1" max="28" value="${st.fillDay || ''}"><label for="s-dateby">חישוב החודש של תנועה לפי</label><select id="s-dateby"><option value="date" ${st.dateBy !== 'value' ? 'selected' : ''}>תאריך העסקה</option><option value="value" ${st.dateBy === 'value' ? 'selected' : ''}>תאריך הערך או החיוב (כשיש)</option></select><label for="s-pin">קוד כניסה (4 עד 8 ספרות, ריק = בלי קוד)</label><input id="s-pin" type="password" inputmode="numeric" maxlength="8" placeholder="${st.pin ? 'קוד מוגדר. כתבו קוד חדש כדי להחליף' : ''}" autocomplete="new-password">${st.pin ? '<label><input id="s-pinrm" type="checkbox"> ביטול הקוד</label>' : ''}<label for="s-tithe">אחוז מעשר</label><input id="s-tithe" type="number" value="${st.tithe}"><label><input id="s-call" type="checkbox" ${st.alertCall ? 'checked' : ''}> בהתראות תקציב לחייג גם בטלפון (לקו ולמספר שהוגדרו בפרופיל)</label><div class="row" style="margin-top:10px"><button class="b" id="s-save">שמירה</button></div></div>
+  ${ME.role === 'admin' ? '<div class="card" id="sumit-card"><h2>חיבור לסמיט (הפקת חשבוניות)</h2><div class="mut">טוען…</div></div>' : ''}
+  ${window.BUDGET_PEOPLE ? `<div class="card"><h2>חיבורים</h2><div id="conn" class="mut">בודק…</div><p style="margin-top:10px"><a class="btn sec" href="/plans/limits/">📏 הגבלות לפי משתמש</a></p></div>` : ''}
+  ${ME.role === 'admin' ? `<div class="card" id="mz-card"><h2>חיבור לתוכנת מזרק</h2><p class="mut">מזרק מושכת את התנועות מהבנקים וחברות האשראי ושולחת אותן לכאן אוטומטית. הדרך הקלה: לוחצים כאן על "יצירת קוד חיבור", מעתיקים את הקוד, ומדביקים אותו בתוכנה (יעד "התקציב שלי"). הקוד כולל גם את כתובת האתר וגם את המפתח.</p><label>שם החיבור</label><input id="mz-name" placeholder="למשל: המחשב בבית"><p><button class="b" id="mz-gen">יצירת קוד חיבור למזרק</button></p><div id="mz-code" class="mut"></div><p class="mut">או, אם יצרתם מפתח בתוך מזרק, מדביקים אותו כאן:</p><label>מפתח החיבור</label><input id="mz-key" dir="ltr" placeholder="mz_..." autocomplete="off"><p><button class="b" id="mz-add">חיבור</button></p><div id="mz-list" class="mut">טוען...</div></div>` : ''}
+  ${canEdit() ? `<div class="card">${window.BUDGET_PEOPLE ? `<p><a class="btn sec" href="${esc(window.BUDGET_PEOPLE)}">👥 הרשאות לפי אדם</a></p>` : ''}<h2>גיבוי וייבוא נתונים</h2><p><a class="btn" href="${API}export" download>⬇ גיבוי כל הנתונים לקובץ</a></p><p class="mut">הקובץ מכיל את כל התקציב, ואפשר לשחזר אותו כאן בעזרת "בחירת קובץ". אפשר לבחור גם קובץ תנועות שמופק במזרק, והן ייכנסו בלי כפילויות.</p><label class="btn" style="margin:0">בחירת קובץ<input type="file" id="imp" accept=".json" hidden></label><p class="mut">ייבוא מוסיף לנתונים הקיימים ולא מוחק. הנתונים משותפים לכל משתמשי פרויקט התקציב.</p>${window.BUDGET_CAN_WIPE ? '<button class="b red" id="wipe">מחיקת כל הנתונים</button><p class="mut">מחיקה לצמיתות של כל נתוני התקציב המשותפים לכל משתמשי הפרויקט. אי אפשר לשחזר.</p>' : ''}</div>` : ''}`;
+};
+
+/* ---------- ייבוא ---------- */
+function importAny(j) {
+  if (j && j.docs) { // שחזור מקובץ גיבוי: המזהים נשמרים, ולכן שחזור חוזר לא יוצר כפילויות
+    let n = 0; for (const c of COLL) for (const d of j.docs[c] || []) if (d && d.id) { put(c, d); n++; }
+    if (j.docs.settings && j.docs.settings.main) { Object.assign(S.settings, j.docs.settings.main); save(); }
+    return 'שוחזרו ' + n + ' רשומות';
+  }
+  if (Array.isArray(j)) { // תנועות מ"מזרק" (כספיון): המזהה נגזר מה-hash, ולכן ייבוא חוזר לא יוצר כפילויות
+    let n = 0;
+    for (const t of j) {
+      const amt = +(t.chargedAmount ?? t.originalAmount); if (!t || !t.hash || !amt) continue;
+      put('tx', { id: 'bk-' + t.hash, type: amt < 0 ? 'expense' : 'income', amount: Math.abs(amt), cat: t.category || '', note: [t.description, t.memo].filter(Boolean).join(' - '), date: String(t.date || '').slice(0, 10) || today(), acct: '' });
+      n++;
+    }
+    return 'יובאו ' + n + ' תנועות';
+  }
+  const by = (o, k) => o[k] || [];
+  const add = (c, o) => put(c, { id: uid(), ...o });
+  const m = j.monthly || {};
+  Object.entries({ income: 'income', fixed: 'fixed', variable: 'variable', consumption: 'consumption', charity: 'charity' }).forEach(([k, kind]) => by(m, k).forEach(p => add('plan', { kind, name: p.name, amount: p.amount, day: p.day || '', tith: kind === 'income', active: true })));
+  by(j, 'yearExpense').forEach(x => add('yearly', { kind: 'expense', month: x.month, name: x.name, amount: x.amount, year: '' }));
+  by(j, 'yearIncome').forEach(x => add('yearly', { kind: 'income', month: 'כללי', name: x.name, amount: x.amount, year: '' }));
+  by(j, 'debts').forEach(d => add('debts', d));
+  const b = { id: uid(), name: 'ציור בחול' }; put('bizs', b);
+  by(j, 'orders').forEach(o => add('orders', { biz: b.id, client: o.client, when: o.when, year: o.year, amount: o.amount, cost: o.cost, paid: o.paid, note: o.note }));
+  by(j, 'bizExpenses').forEach(o => add('bizExp', { biz: b.id, item: o.item, when: o.when, year: o.year, amount: o.amount }));
+  return 'הנתונים יובאו';
+}
+
+/* ---------- הפקת מסמך ---------- */
+function makeInvoice(orderId) {
+  const o = live('orders').find(x => x.id === orderId), bz = live('bizs').find(b => b.id === curBiz);
+  const m = modal(`<h2>הפקת מסמך</h2><label>סוג</label><select id="ik"><option>חשבון עסקה</option><option>חשבונית</option><option>קבלה</option><option>חשבונית-קבלה</option></select><label>לקוח</label><input id="ic" value="${esc(o.client)}"><label>סכום</label><input id="ia" type="number" value="${o.amount || ''}"><label>תיאור</label><input id="id" value="${esc(o.note || 'תוכנית ציור בחול')}"><div class="row" style="margin-top:14px"><button class="b" id="ok">הפקה</button><button class="b sec" id="no">ביטול</button></div>`);
+  m.querySelector('#no').onclick = () => m.remove();
+  m.querySelector('#ok').onclick = () => {
+    const kind = m.querySelector('#ik').value, mx = Math.max(0, ...live('invoices').filter(i => i.biz === curBiz && i.kind === kind).map(i => +i.num || 0));
+    const inv = { id: uid(), biz: curBiz, order: o.id, kind, num: mx + 1, client: m.querySelector('#ic').value, amount: +m.querySelector('#ia').value, desc: m.querySelector('#id').value, date: today() };
+    put('invoices', inv); m.remove(); printInv(inv.id); render();
+  };
+}
+function printInv(id) {
+  const i0 = live('invoices').find(x => x.id === id), b = live('bizs').find(x => x.id === i0.biz) || {}; let i = i0;
+  if (!i.num) { i = { ...i, num: Math.max(0, ...live('invoices').filter(x => x.biz === i.biz && x.kind === i.kind).map(x => +x.num || 0)) + 1 }; put('invoices', i); }
+  const txt = `${i.kind} מס' ${i.num}\n${b.name || ''} ${b.taxid ? 'עוסק מס\' ' + b.taxid : ''}\nתאריך: ${i.date.split('-').reverse().join('/')}\nלכבוד: ${i.client}\n${i.desc}\nסה"כ: ${fmt(i.amount)}`;
+  const m = modal(`<div style="background:#fff;color:#000;padding:16px;border-radius:10px"><h2>${esc(i.kind)} מס' ${i.num}</h2><p><b>${esc(b.name || '')}</b><br>${esc(b.taxid ? 'עוסק מס\' ' + b.taxid : '')} ${esc(b.phone || '')}<br>${esc(b.address || '')}</p><p>תאריך: ${i.date.split('-').reverse().join('/')}<br>לכבוד: <b>${esc(i.client)}</b></p><table style="color:#000"><tr><th>תיאור</th><th>סכום</th></tr><tr><td>${esc(i.desc)}</td><td>${fmt(i.amount)}</td></tr><tr class="tot" style="color:#000"><td>סה"כ</td><td>${fmt(i.amount)}</td></tr></table></div>${i.sumit ? `<p class="good">הופק בסמיט: מספר ${esc(i.sumit.number)}${i.sumit.draft ? ' (טיוטה)' : ''}${i.sumit.url ? ` · <a href="${esc(i.sumit.url)}" target="_blank" rel="noopener">הורדה</a>` : ''}</p>` : ''}<div class="row" style="margin-top:12px">${!i.sumit && window.BUDGET_SUMIT && window.BUDGET_SUMIT.includes(i.kind) ? `${['קבלה', 'חשבונית-קבלה'].includes(i.kind) ? '<label for="spay" style="margin:0">אמצעי תשלום</label><select id="spay" style="width:auto"><option value="cash">מזומן</option><option value="transfer">העברה בנקאית</option></select>' : ''}<button class="b" id="sm">הפקה בסמיט</button>` : ''}<button class="b sec" id="cp">העתקת הטקסט</button><button class="b sec" id="cps">העתקה להפקה בסמיט</button><button class="b sec" id="cl">סגירה</button></div>`);
+  m.querySelector('#cl').onclick = () => m.remove();
+  const sm = m.querySelector('#sm');
+  if (sm) sm.onclick = async () => {
+    sm.disabled = true; sm.textContent = 'מפיק…';
+    try {
+      const r = await fetch(API + 'sumit', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() }, body: JSON.stringify({ kind: i.kind, client: i.client, desc: i.desc, amount: i.amount, date: i.date, payment: (m.querySelector('#spay') || {}).value || 'cash' }) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'ההפקה נכשלה');
+      put('invoices', { ...i, sumit: { number: j.number, id: j.id, url: j.url, draft: j.draft } }); m.remove(); toast('הופק בסמיט' + (j.draft ? ' (טיוטה)' : '')); render();
+    } catch (e) { sm.disabled = false; sm.textContent = 'הפקה בסמיט'; toast(e.message || 'ההפקה נכשלה'); }
+  };
+  m.querySelector('#cps').onclick = () => navigator.clipboard.writeText(`סוג המסמך: ${i.kind}\nלקוח: ${i.client}\nתיאור: ${i.desc || ''}\nסכום: ${+i.amount || 0}\nתאריך: ${i.date.split('-').reverse().join('/')}`).then(() => toast('הועתק. מדביקים בסמיט'), () => toast('ההעתקה נכשלה'));
+  m.querySelector('#cp').onclick = () => navigator.clipboard.writeText(txt).then(() => toast('הועתק'), () => toast('אפשר לצלם מסך'));
+}
+
+/* ---------- מסלולי ריבית של חוב ---------- */
+function tracksModal(d) {
+  if (!d) return;
+  const trackHtml = t => `<div class="card trk" style="margin:8px 0"><label>שם המסלול</label><input data-f="name" value="${esc(t.name || '')}">
+    <label>סוג</label><select data-f="type">${Object.entries({ fixed: 'ריבית קבועה', prime: 'פריים (עוקב אחרי ריבית הפריים)', var: 'משתנה (מעדכנים בעצמי)' }).map(([a, b]) => `<option value="${a}" ${(t.type || 'fixed') === a ? 'selected' : ''}>${b}</option>`).join('')}</select>
+    <label>סכום המסלול בתחילת ההחזרים</label><input data-f="principal" type="number" step="any" value="${esc(t.principal ?? '')}">
+    <label>מספר תשלומים חודשיים כולל</label><input data-f="months" type="number" value="${esc(t.months ?? '')}">
+    <label>ריבית שנתית % (בפריים: המרווח מהפריים, למשל -0.5)</label><input data-f="rate" type="number" step="any" value="${esc(t.rate ?? '')}">
+    <label>חודשי גרייס בתחילת ההלוואה (בלי החזר קרן)</label><input data-f="grace" type="number" min="0" value="${esc(t.grace ?? '')}">
+    <label>סוג הגרייס</label><select data-f="graceFull"><option value="">ריבית בלבד (משלמים רק ריבית)</option><option value="1" ${t.graceFull ? 'selected' : ''}>מלא (אין תשלום, והריבית מצטרפת לקרן)</option></select>
+    <label>הצמדה למדד, אחוז שנתי משוער (0 אם אין)</label><input data-f="link" type="number" step="any" value="${esc(t.link ?? '')}">
+    <label>שינויי ריבית (למסלול משתנה): שורה לכל שינוי, למשל 2026-03 4.7</label><textarea data-f="changes" rows="2" style="width:100%">${esc(t.changes || '')}</textarea>
+    <button class="b red" data-rm style="margin-top:6px">הסרת המסלול</button></div>`;
+  const m = modal(`<h2>מסלולי ריבית — ${esc(d.name)}</h2><p class="mut">החישוב לפי לוח סילוקין רגיל (שפיצר), בכל חודש מחדש לפי הריבית באותו חודש. תחילת ההחזרים נקבעת בפרטי החוב.</p><div id="trks">${(d.tracks || []).map(trackHtml).join('')}</div>
+    <div class="row"><button class="b sec" id="t-add">＋ מסלול</button></div><div class="row" style="margin-top:14px"><button class="b" id="t-ok">שמירה</button><button class="b sec" id="t-no">ביטול</button></div>`);
+  const box = m.querySelector('#trks'), wire = () => box.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => b.closest('.trk').remove());
+  wire();
+  m.querySelector('#t-add').onclick = () => { box.insertAdjacentHTML('beforeend', trackHtml({})); wire(); };
+  m.querySelector('#t-no').onclick = () => m.remove();
+  m.querySelector('#t-ok').onclick = () => {
+    const tracks = [...box.querySelectorAll('.trk')].map(c => { const o = {}; c.querySelectorAll('[data-f]').forEach(e => { o[e.dataset.f] = e.value.trim(); }); return o; }).filter(t => +t.principal > 0 && +t.months > 0);
+    const nd = { ...d, tracks, tracksUpd: today(), start: d.start || today().slice(0, 7) };
+    if (tracks.length) { const i = debtInfo(nd); nd.balance = tracks.reduce((a, t) => a + +t.principal, 0); nd.monthly = Math.round(i.next || 0); nd.end = i.endYm; } else delete nd.end;
+    put('debts', nd); m.remove(); render();
+  };
+}
+
+/* ---------- הזנה מהירה ---------- */
+function quickAdd(pre = {}) {
+  const names = [...new Set(monthlyPlan().map(p => p.name))], acc = live('accounts');
+  const m = modal(`<h2>הזנה מהירה</h2><div class="tabs"><button class="${pre.type === 'income' ? '' : 'on'}" data-t="expense">הוצאה</button><button class="${pre.type === 'income' ? 'on' : ''}" data-t="income">הכנסה</button></div>
+  <input id="q-amt" type="number" inputmode="decimal" step="any" placeholder="סכום" style="font-size:28px;text-align:center" autofocus>
+  <label>סעיף</label><input id="q-cat" list="q-list" placeholder="בחר או כתוב" value="${esc(pre.cat || '')}"><datalist id="q-list">${names.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+  <label>הערה</label><input id="q-note"><label>תאריך</label><input id="q-date" type="date" value="${pre.date || today()}">
+  ${acc.length ? `<label>חשבון בנק</label><select id="q-acc"><option value="">—</option>${acc.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>` : ''}
+  <div class="row" style="margin-top:14px"><button class="b" id="ok">שמירה</button><button class="b sec" id="no">ביטול</button></div>`);
+  let type = pre.type || 'expense'; m.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { type = b.dataset.t; m.querySelectorAll('[data-t]').forEach(x => x.classList.toggle('on', x === b)); });
+  m.querySelector('#no').onclick = () => m.remove();
+  m.querySelector('#ok').onclick = () => {
+    const amt = +m.querySelector('#q-amt').value; if (!amt) return toast('חסר סכום');
+    const t = { id: uid(), type, amount: amt, cat: m.querySelector('#q-cat').value.trim(), note: m.querySelector('#q-note').value.trim(), date: m.querySelector('#q-date').value || today(), acct: m.querySelector('#q-acc')?.value || '' };
+    put('tx', t);
+    if (t.acct) { const a = live('accounts').find(x => x.id === t.acct); if (a) put('accounts', { ...a, balance: (+a.balance || 0) + (type === 'income' ? amt : -amt) }); }
+    m.remove(); toast('נשמר'); render();
+  };
+  setTimeout(() => m.querySelector('#q-amt').focus(), 100);
+}
+
+/* ---------- סנכרון עם הבנקים (מזרק רץ ברקע במחשב) ---------- */
+let SYNC = null;
+const syncKey = j => j && [j.online, j.status, j.pending, j.message, j.last_added, j.run_finished_at, JSON.stringify(j.progress)].join('|');
+async function syncLoad() {
+  try {
+    const r = await fetch(API + 'sync-state', { credentials: 'same-origin' }); if (!r.ok) return;
+    const prev = SYNC; SYNC = await r.json();
+    if (prev && prev.status === 'running' && SYNC.status === 'ok') { await pull(); return; }
+    if (tab === 'txs' && syncKey(prev) !== syncKey(SYNC) && !document.activeElement?.matches?.('select,input')) render();
+  } catch (e) { /* בלי חיבור */ }
+}
+setInterval(() => { if (tab === 'txs' && !document.hidden && (!SYNC || SYNC.status === 'running' || SYNC.pending)) syncLoad(); }, 3000);
+setInterval(() => { if (tab === 'txs' && !document.hidden) syncLoad(); }, 15000);
+const when = iso => iso ? new Date(iso).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' }) : '';
+function syncCard() {
+  const j = SYNC; let line;
+  if (!j) line = 'טוען...';
+  else if (j.status === 'running') line = '⏳ מסנכרן עכשיו מול הבנקים... זה לוקח כמה דקות, והתנועות יופיעו כאן לבד.';
+  else if (!j.online) line = `⚠️ התוכנה מזרק לא פועלת כרגע במחשב שלך. היא צריכה להיות דלוקה (היא נפתחת לבד עם Windows ופועלת ברקע). הסנכרון יתחיל ברגע שתתחבר.${j.run_finished_at ? ' הסנכרון האחרון: ' + when(j.run_finished_at) + '.' : ''}`;
+  else if (j.pending) line = '⏳ הבקשה נשלחה. מזרק תתחיל לסנכרן בתוך חצי דקה.';
+  else if (j.status === 'error') line = `❌ הסנכרון האחרון נכשל (${when(j.run_finished_at)}): ${esc(j.message || 'שגיאה לא ידועה')}`;
+  else if (j.status === 'partial') line = `⚠️ הסנכרון האחרון הושלם חלקית (${when(j.run_finished_at)}). מה שהצליח כבר נוסף (${j.last_added || 0} תנועות חדשות). לא הצליח: ${esc(j.message || '')}`;
+  else if (j.status === 'ok') line = `✅ הסנכרון האחרון: ${when(j.run_finished_at)}. נוספו ${j.last_added || 0} תנועות חדשות.`;
+  else line = '✅ מזרק מחוברת. עוד לא היה סנכרון.';
+  const pr = j && j.status === 'running' ? j.progress : null;
+  const bar = pr ? `<div class="bar" style="margin:8px 0"><i style="width:${+pr.percent || 0}%"></i></div><p><b>${+pr.percent || 0}%</b> · ${esc(pr.text || '')}</p><ul style="list-style:none;padding:0;margin:0">${(pr.steps || []).map(s => `<li>${{ done: '✅', error: '❌', running: '⏳', waiting: '⏸️' }[s.status] || '⏸️'} ${esc(s.name)}${s.detail ? ' <span class="mut">· ' + esc(s.detail) + '</span>' : ''}</li>`).join('')}</ul>` : '';
+  const busy = j && (j.status === 'running' || j.pending);
+  return `<div class="card" id="sync-card"><h2>🔄 סנכרון עם הבנקים</h2><p>${line}</p>${bar}${canEdit() ? `<p><button class="b" id="sync-now" ${busy ? 'disabled' : ''}>סנכרן עכשיו</button></p>` : ''}<p class="mut">מזרק פועלת ברקע במחשב שלך ומסנכרנת לבד כל ${j ? j.auto_hours : 6} שעות, כל עוד המחשב דלוק. אין צורך לפתוח אותה.</p></div>`;
+}
+async function syncSend(mode) {
+  try {
+    const r = await fetch(API + 'sync-request', { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRFToken': csrf(), 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'הבקשה נכשלה');
+    SYNC = await r.json(); toast('הבקשה נשלחה'); render();
+  } catch (x) { toast(x.message); }
+}
+// אם בשעה האחרונה הסנכרון הושלם רק חלקית, שואלים: רק מה שלא הצליח (לא מעמיסים על האתרים), או הכל מחדש
+function syncNow() {
+  const recent = SYNC && SYNC.run_finished_at && (Date.now() - Date.parse(SYNC.run_finished_at)) < 3600e3;
+  if (!(SYNC && SYNC.status === 'partial' && recent)) { syncSend(''); return; }
+  const m = modal(`<h2>איך לסנכרן?</h2><p class="mut">לפני פחות משעה הסנכרון הושלם חלקית. כדי לא להעמיס על אתרי הבנקים (וכך לא להיחסם), אפשר לסנכרן רק את מה שלא הצליח.</p>
+    <div class="row" style="margin-top:12px"><button class="b" id="sy-failed">רק מה שלא הצליח</button><button class="b sec" id="sy-all">סנכרן הכל מחדש</button><button class="b sec" id="sy-no">ביטול</button></div>`);
+  m.querySelector('#sy-failed').onclick = () => { m.remove(); syncSend(''); };
+  m.querySelector('#sy-all').onclick = () => { m.remove(); syncSend('all'); };
+  m.querySelector('#sy-no').onclick = () => m.remove();
+}
+
+/* ---------- כל התנועות: סיווג לסעיפים ---------- */
+const BANK_NAMES = { hapoalim: 'הפועלים', hapoalimBeOnline: 'הפועלים', isracard: 'ישראכרט', amex: 'אמריקן אקספרס', visaCal: 'ויזה כאל', max: 'מקס', leumiCard: 'לאומי קארד', leumi: 'לאומי', beinleumi: 'הבינלאומי', pagi: 'פאג"י', massad: 'מסד', otsarHahayal: 'אוצר החייל', union: 'איגוד', discount: 'דיסקונט', mizrahi: 'מזרחי', yahav: 'יהב', mercantile: 'מרכנתיל', behatsdaa: 'בהצדעה', beyahadBishvilha: 'ביחד בשבילך' };
+// שם הבנק או הכרטיס של תנועה שנקלטה מ"מזרק" (מתוך המזהה שלה), עם 4 ספרות אחרונות של החשבון
+const bankOf = t => {
+  if (t.bank) return t.bank;
+  if (t.co) return (BANK_NAMES[t.co] || t.co) + (t.ac ? ' ·' + t.ac : '');
+  const p = String(t.id || '').startsWith('bk-') ? t.id.slice(3).split('_') : [];
+  if (p.length < 3) return '';
+  const co = p[p.length - 2], ac = p[p.length - 1].replace(/\D/g, '').slice(-4);
+  return (BANK_NAMES[co] || co) + (ac ? ' ·' + ac : '');
+};
+const txSel = new Set();
+let txf = { month: '', bank: '', q: '', cat: '', none: false, limit: 100 };
+// הסעיפים שאפשר לשייך אליהם תנועה: חודשיים, שנתיים וחובות (הכנסות לסעיפי הכנסה)
+const catGroups = type => {
+  const inc = type === 'income';
+  const monthly = monthlyPlan().filter(p => (p.kind === 'income' || p.kind === 'incomeVar') === inc).map(p => p.name);
+  const yearly = live('yearly').filter(x => (x.kind === 'income') === inc).map(x => x.name);
+  const debts = inc ? [] : live('debts').map(debtCat);
+  return [['חודשיות', monthly], ['שנתיות', yearly], ['חובות', debts], [EXTRA_G[0], miscCats()], [EXTRA_G[1], nbCats()]].map(([title, names]) => [title, [...new Set(names)]]).filter(g => g[1].length);
+};
+async function setTxCat(id, cat) {
+  const t = S.data.tx.find(x => x.id === id && !x.del);
+  if (!t) { toast('התנועה לא נמצאה, נסו לרענן את הדף'); return render(); }
+  const note = String(t.note || '').slice(0, 60);
+  if (!await ask(cat ? `לשנות את הסעיף של "${note}" (${fmt(t.amount)}) ל"${cat}"?\nהשינוי חל על התנועה הזו בלבד.` : `להסיר את הסעיף מהתנועה "${note}"?`)) return render();
+  put('tx', withCat(t, cat));
+  toast('נשמר: הסעיף עודכן בתנועה הזו בלבד');
+  render();
+}
+V.txs = () => {
+  const all = S.data.tx.filter(x => !x.del).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const months = [...new Set(all.map(ymOf))];
+  const banks = [...new Set(all.map(bankOf).filter(Boolean))].sort();
+  const q = txf.q.trim();
+  const base = all.filter(t => (!txf.month || ymOf(t) === txf.month) && (!txf.bank || bankOf(t) === txf.bank) && (!txf.none || !t.cat) && (!q || `${t.note || ''} ${t.cat || ''} ${t.tags || ''}`.includes(q)));
+  // סינון לפי סעיף: שבבים עם סכום לכל סעיף בתנועות המסוננות (הכנסות בשבב נפרד)
+  const byCatSum = {}; base.filter(t => !isDup(t)).forEach(t => { const k = t.type === 'income' ? '__inc' : (t.cat || '__none'); byCatSum[k] = (byCatSum[k] || 0) + +t.amount; });
+  const topExp = Object.entries(byCatSum).filter(([k]) => k !== '__inc').sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const chips = Object.entries(byCatSum).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<button class="chip ${txf.cat === k ? 'on' : ''}" data-txchip="${esc(k)}">${esc(k === '__inc' ? 'הכנסות' : k === '__none' ? 'ללא סעיף' : k)} · ${fmt(v)}</button>`).join('');
+  const rows = txf.cat ? base.filter(t => txf.cat === '__inc' ? t.type === 'income' : (txf.cat === '__none' ? (!t.cat && t.type !== 'income') : t.cat === txf.cat)) : base;
+  const sum = f => rows.filter(t => !isDup(t) && f(t)).reduce((a, t) => a + +t.amount, 0);
+  const inc = sum(t => t.type === 'income'), exp = sum(t => t.type !== 'income'), uncat = all.filter(t => !t.cat && !isDup(t)).length;
+  const opts = t => {
+    const groups = catGroups(t.type), known = groups.some(g => g[1].includes(t.cat));
+    return `<option value="">ללא סעיף (אחר)</option>${t.cat && !known ? `<option value="${esc(t.cat)}" selected>${esc(t.cat)}</option>` : ''}${groups.map(([title, names]) => `<optgroup label="${title}">${names.map(n => `<option value="${esc(n)}" ${n === t.cat ? 'selected' : ''}>${esc(n)}</option>`).join('')}</optgroup>`).join('')}`;
+  };
+  return `${syncCard()}<div class="card"><h2>כל התנועות</h2>
+  <p class="mut">התנועות מהבנקים וחברות האשראי (מתוכנת מזרק), וגם מה שהזנת ידנית. לכל תנועה בוחרים סעיף: חודשי, שנתי או חוב, וכך היא נכנסת למקום הנכון בתקציב. תנועה בלי סעיף נספרת תחת "אחר".</p>
+  <div class="row"><select id="tx-month" style="width:auto"><option value="">כל התקופה</option>${months.map(m => `<option value="${m}" ${m === txf.month ? 'selected' : ''}>${m.slice(5)}/${m.slice(0, 4)}</option>`).join('')}</select>
+  <select id="tx-bank" style="width:auto"><option value="">כל החשבונות ביחד</option>${banks.map(b => `<option value="${esc(b)}" ${b === txf.bank ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>
+  <input id="tx-q" placeholder="חיפוש בתיאור או בסעיף" value="${esc(txf.q)}" style="flex:1;min-width:140px"></div>
+  ${canEdit() && txf.bank ? `<p><button class="b sec" id="bk-hide">${hiddenBanks().includes(txf.bank) ? 'ביטול הסתרה: ' : 'הסתרת החשבון מהסיכומים: '}${esc(txf.bank)}</button></p>` : ''}
+  ${canEdit() ? '<p><button class="b sec" id="bf-open">⬆ ייבוא מקובץ בנק</button> <button class="b sec" id="tr-open">🔄 העברות בין חשבונות</button> <button class="b sec" id="rc-open">🔁 חיובים חוזרים</button> <button class="b sec" id="rl-open">🏷️ כללי סיווג</button> <button class="b sec" id="cats-open">🗂 ניהול קטגוריות</button></p>' : ''}
+  <p><label><input type="checkbox" id="tx-none" ${txf.none ? 'checked' : ''}> רק תנועות בלי סעיף (${uncat})</label><br><span class="mut">בחירת סעיף כאן משנה את התנועה הזו בלבד. כדי לסווג כל התנועות הדומות יוצרים כלל (כפתור כללי סיווג).</span></p>
+  <div class="grid"><div class="kpi"><small>הכנסות</small><strong class="good">${fmt(inc)}</strong></div><div class="kpi"><small>הוצאות</small><strong class="bad">${fmt(exp)}</strong></div><div class="kpi"><small>הפרש</small><strong>${fmt(inc - exp)}</strong></div></div>
+  ${canEdit() && rows.length ? `<div class="row" style="margin-top:8px"><label><input type="checkbox" id="tx-all"> סימון כל המוצגות</label><select id="tx-bulkcat" style="width:auto"><option value="">סעיף לסימונים…</option>${[...catGroups('expense'), ...catGroups('income').filter(g => !EXTRA_G.includes(g[0])).map(g => [g[0] + ' (הכנסות)', g[1]])].map(([title, names]) => `<optgroup label="${title}">${names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select><button class="b sec" id="tx-bulkset">החלה על המסומנות</button><button class="b red" id="tx-bulkdel">מחיקת המסומנות</button></div>` : ''}
+  ${topExp.length ? `<div class="card" style="margin:8px 0"><b>הוצאות לפי סעיף</b>${topExp.map(([k, v]) => `<div data-txchip="${esc(k)}" style="cursor:pointer;margin:4px 0"><div style="display:flex;justify-content:space-between;font-size:.9rem"><span>${esc(k === '__none' ? 'ללא סעיף' : k)}</span><span>${fmt(v)}</span></div><div style="background:var(--surface-2,#eef2f7);border-radius:6px;height:8px"><div style="width:${Math.max(2, Math.round(100 * v / topExp[0][1]))}%;height:8px;border-radius:6px;background:var(--primary,#2563eb)"></div></div></div>`).join('')}</div>` : ''}
+  <div class="row" style="flex-wrap:wrap;margin:8px 0">${txf.cat ? '<button class="chip" id="tx-chipclear">✕ כל הסעיפים</button>' : ''}${chips}</div>
+  ${rows.length ? `<div class="scroll"><table><tr>${canEdit() ? '<th></th>' : ''}<th>תאריך</th><th>חשבון</th><th>תיאור</th><th>סכום</th><th>סעיף</th>${canEdit() ? '<th></th>' : ''}</tr>${rows.slice(0, txf.limit).map(t => `<tr>${canEdit() ? `<td><input type="checkbox" data-sel="${esc(t.id)}" ${txSel.has(t.id) ? 'checked' : ''}></td>` : ''}<td>${esc(String(t.date).slice(8, 10))}/${esc(String(t.date).slice(5, 7))}</td><td>${esc(bankOf(t))}</td><td>${esc(t.note || '')}${t.tags ? ` <span class="mut">#${esc(String(t.tags).split(',').map(x => x.trim()).filter(Boolean).join(' #'))}</span>` : ''}${isDup(t) ? ` <span class="mut">(${t.sp ? 'פוצלה לכמה סעיפים למטה' : t.nb ? 'סומנה כלא נספרת בתקציב' : hiddenBanks().includes(bankOf(t)) ? 'חשבון מוסתר' : t.tr ? 'העברה בין החשבונות שלך' : 'מכוסה בפירוט הכרטיס'}, לא נספר)</span>` : ''}</td><td class="n ${t.type === 'income' ? 'good' : 'bad'}">${t.type === 'income' ? '+' : '-'}${fmt(t.amount)}</td><td>${canEdit() ? `<select data-txcat="${esc(t.id)}" style="min-width:130px" ${!t.cat && !isDup(t) ? 'class="uncls"' : ''}>${opts(t)}</select>${!t.cat && !isDup(t) ? '<div class="bad" style="font-size:.8rem">● לסווג</div>' : ''}` : esc(t.cat || '—')}</td>${canEdit() ? `<td><button class="ic" data-edit="tx:${esc(t.id)}" title="עריכה">✏️</button>${t.sp ? `<button class="ic" data-unsplit="${esc(t.id)}" title="ביטול פיצול">↩️</button>` : `<button class="ic" data-split="${esc(t.id)}" title="פיצול לכמה סעיפים">✂️</button><button class="ic" data-dup="${esc(t.id)}" title="שכפול">⧉</button>`}${delBtn('tx', esc(t.id))}</td>` : ''}</tr>`).join('')}</table></div>${rows.length > txf.limit ? `<p><button class="b sec" id="tx-more">הצג עוד (${rows.length - txf.limit} נוספות)</button></p>` : ''}` : '<p class="mut">אין תנועות להצגה. אפשר להפעיל את מזרק, או לייבא קובץ בלשונית "עוד".</p>'}
+  <p class="mut">סעיף חדש מוסיפים בלשונית "חודשי" או "שנתי", והוא יופיע כאן ברשימה.</p></div>`;
+};
+/* ---------- ייבוא תנועות מקובץ שהורדו מאתר הבנק או הכרטיס ---------- */
+const BF_FIELDS = [['date', 'תאריך', /תאריך\s*(עסקה|רכישה|הפעולה)?$|^תאריך|date/i], ['note', 'תיאור', /תיאור|פרטים|שם\s*בית\s*עסק|בית\s*עסק|תאור|description|merchant/i],
+  ['vdate', 'תאריך ערך או חיוב (לא חובה)', /תאריך\s*(ערך|חיוב)|value\s*date/i], ['amount', 'סכום (עמודה אחת)', /סכום|amount|^שקל|₪/i], ['debit', 'חובה (הוצאה)', /^חובה|סכום\s*חובה|debit/i], ['credit', 'זכות (הכנסה)', /^זכות|סכום\s*זכות|credit/i]];
+const bfNum = v => { let t = String(v ?? '').trim(); if (!t) return 0; const neg = /^\(.*\)$|^-|-$/.test(t) || /^[−–]/.test(t); const n = parseFloat(t.replace(/[^\d.,]/g, '').replace(/,/g, '')); return Number.isFinite(n) ? (neg ? -n : n) : 0; };
+function bfDate(v) {
+  const m = String(v || '').match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})|(\d{4})-(\d{1,2})-(\d{1,2})/); if (!m) return '';
+  let y, mo, d; if (m[4]) { y = +m[4]; mo = +m[5]; d = +m[6]; } else { d = +m[1]; mo = +m[2]; y = +m[3]; if (y < 100) y += 2000; }
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return '';
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+// בקבצי בנק יש לפעמים שורות כותרת לפני הטבלה: הכותרת האמיתית היא השורה הראשונה שיש בה גם תאריך וגם סכום (או חובה/זכות)
+function bfTable(text) {
+  const lines = String(text || '').split(/\r?\n/), from = lines.slice(0, 15).findIndex(l => /תאריך|date/i.test(l) && /סכום|חובה|זכות|amount|debit|credit/i.test(l) && /[,;\t]/.test(l));
+  const t = mgParseTable(from > 0 ? lines.slice(from).join('\n') : text), all = t.headers.length ? [t.headers, ...t.rows] : [];
+  const has = (r, i) => r.some(c => BF_FIELDS[i][2].test(c.replace(/["']/g, ''))), at = all.slice(0, 15).findIndex(r => has(r, 0) && (has(r, 3) || has(r, 4) || has(r, 5)));
+  return at < 0 ? { headers: [], rows: [] } : { headers: all[at], rows: all.slice(at + 1) };
+}
+function bfDetect(headers) {
+  const used = new Set(), map = {};
+  BF_FIELDS.forEach(([k, , re]) => { const i = headers.findIndex((h, n) => !used.has(n) && re.test(h.replace(/["']/g, ''))); map[k] = i; if (i >= 0) used.add(i); });
+  if (map.debit >= 0 && map.credit >= 0) map.amount = -1;
+  return map;
+}
+const bfKey = (d, type, amt, note) => `${d}|${type}|${amt.toFixed(2)}|${normNote(note)}`;
+// מהשורות והמיפוי: תנועות לייבוא. plusIsExpense: בקובץ עם עמודת סכום אחת, האם סכום חיובי הוא הוצאה (כרטיסי אשראי לרוב)
+function bfRows(rows, map, plusIsExpense) {
+  const cell = (r, k) => map[k] >= 0 ? r[map[k]] : '', out = [], skipped = [];
+  rows.forEach((r, n) => {
+    const date = bfDate(cell(r, 'date')), note = String(cell(r, 'note') || '').trim();
+    let amt = 0;
+    if (map.amount >= 0) { const v = bfNum(cell(r, 'amount')); amt = plusIsExpense ? -v : v; }
+    else { const dv = Math.abs(bfNum(cell(r, 'debit'))), cv = Math.abs(bfNum(cell(r, 'credit'))); amt = cv - dv; }
+    if (!date || !amt) { if (r.some(Boolean)) skipped.push(n + 1); return; }
+    out.push({ date, vd: bfDate(cell(r, 'vdate')), note, type: amt < 0 ? 'expense' : 'income', amount: Math.round(Math.abs(amt) * 100) / 100 });
+  });
+  // כפילות: תנועה זהה (תאריך, סוג, סכום ותיאור) שכבר קיימת. שתי תנועות זהות בקובץ נספרות כשתיים, ורק מה שכבר קיים נחשב כפול
+  const have = {}; S.data.tx.filter(x => !x.del).forEach(t => { const k = bfKey(String(t.date).slice(0, 10), t.type, +t.amount, t.note); have[k] = (have[k] || 0) + 1; });
+  out.forEach(t => { const k = bfKey(t.date, t.type, t.amount, t.note); if (have[k] > 0) { have[k]--; t.dup = true; } });
+  return { rows: out, skipped };
+}
+const bfBatches = () => { const g = {}; S.data.tx.filter(t => !t.del && t.imp).forEach(t => { const b = g[t.imp] = g[t.imp] || { id: t.imp, n: 0, from: t.date, to: t.date, bank: t.bank || '', at: t.imp.slice(4, 14) }; b.n++; if (t.date < b.from) b.from = t.date; if (t.date > b.to) b.to = t.date; }); return Object.values(g).sort((a, b) => b.id.localeCompare(a.id)); };
+async function bfDecode(file) {
+  const buf = await file.arrayBuffer();
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { return new TextDecoder('windows-1255').decode(buf); }
+}
+function bankImport() {
+  const banks = [...new Set(S.data.tx.filter(x => !x.del).map(bankOf).filter(Boolean))].sort();
+  const m = modal(`<h2>ייבוא תנועות מקובץ בנק</h2>
+    <p class="mut">נכנסים לאתר הבנק או הכרטיס, מורידים את התנועות כקובץ CSV (באקסל: "שמירה בשם" ← CSV), ובוחרים אותו כאן. אפשר גם להעתיק טבלה מהאקסל ולהדביק. תנועות שכבר קיימות מסומנות ולא נכנסות שוב.</p>
+    <label>שם החשבון או הכרטיס</label><input id="bf-bank" list="bf-banks" placeholder="למשל: הפועלים או ויזה 1234"><datalist id="bf-banks">${banks.map(b => `<option value="${esc(b)}">`).join('')}</datalist>
+    <label class="btn sec" style="margin:6px 0">בחירת קובץ CSV<input type="file" id="bf-file" accept=".csv,.txt,.tsv" hidden></label>
+    <label>או הדבקה מהאקסל</label><textarea id="bf-text" rows="4" style="width:100%" placeholder="הדביקו כאן את הטבלה, כולל שורת הכותרות"></textarea>
+    <div id="bf-map"></div><div id="bf-prev"></div>
+    <div class="row" style="margin-top:12px"><button class="b" id="bf-ok" disabled>ייבוא</button><button class="b sec" id="bf-no">סגירה</button></div>
+    <div id="bf-hist"></div>`);
+  let table = null, map = {}, built = null;
+  const hist = () => {
+    const bs = bfBatches();
+    m.querySelector('#bf-hist').innerHTML = bs.length ? `<h3>ייבואים קודמים</h3><div class="scroll"><table><tr><th>תאריך ייבוא</th><th>חשבון</th><th>תנועות</th><th>טווח</th><th></th></tr>${bs.map(b => `<tr><td>${esc(b.at)}</td><td>${esc(b.bank)}</td><td>${b.n}</td><td>${esc(b.from)} עד ${esc(b.to)}</td><td><button class="b red" data-undo="${esc(b.id)}">ביטול ייבוא</button></td></tr>`).join('')}</table></div>` : '';
+    m.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => {
+      const ids = S.data.tx.filter(t => t.imp === b.dataset.undo).map(t => t.id);
+      if (!confirm(`למחוק ${ids.length} תנועות מהייבוא הזה? אי אפשר לשחזר.`)) return;
+      ids.forEach(id => remove('tx', id)); toast(`נמחקו ${ids.length} תנועות`); hist(); render();
+    });
+  };
+  const refresh = () => {
+    if (!table) return;
+    m.querySelectorAll('[data-bf]').forEach(s => { map[s.dataset.bf] = +s.value; });
+    const plus = m.querySelector('#bf-plus')?.value === '1';
+    built = bfRows(table.rows, map, plus);
+    const fresh = built.rows.filter(t => !t.dup), dup = built.rows.length - fresh.length;
+    m.querySelector('#bf-prev').innerHTML = built.rows.length ? `<h3>מה ייובא</h3><p>${fresh.length} חדשות${dup ? `, ${dup} כבר קיימות (לא ייובאו)` : ''}${built.skipped.length ? `, ${built.skipped.length} שורות בלי תאריך או סכום דולגו` : ''}</p>
+      <div class="scroll"><table><tr><th>תאריך</th><th>תיאור</th><th>סכום</th><th></th></tr>${built.rows.slice(0, 60).map(t => `<tr${t.dup ? ' style="opacity:.5"' : ''}><td>${esc(t.date)}</td><td>${esc(t.note)}</td><td class="${t.type === 'income' ? 'good' : 'bad'}">${t.type === 'income' ? '+' : '-'}${fmt(t.amount)}</td><td>${t.dup ? 'כבר קיימת' : 'חדשה'}</td></tr>`).join('')}</table></div>${built.rows.length > 60 ? `<p class="mut">מוצגות 60 הראשונות</p>` : ''}` : '<p class="bad">לא נמצאו תנועות. בדקו שהעמודות מזוהות נכון.</p>';
+    m.querySelector('#bf-ok').disabled = !fresh.length;
+  };
+  const run = text => {
+    table = bfTable(text); if (!table.headers.length || !table.rows.length) { table = null; toast('לא זוהתה טבלת תנועות עם תאריך וסכום'); return; }
+    map = bfDetect(table.headers);
+    const neg = table.rows.some(r => map.amount >= 0 && bfNum(r[map.amount]) < 0);
+    m.querySelector('#bf-map').innerHTML = '<h3>זיהוי העמודות</h3>' + BF_FIELDS.map(([k, label]) => `<label>${label}</label><select data-bf="${k}"><option value="-1">—</option>${table.headers.map((h, i) => `<option value="${i}" ${map[k] === i ? 'selected' : ''}>${esc(h)}</option>`).join('')}</select>`).join('')
+      + `<label>בעמודת סכום אחת: סכום חיובי הוא</label><select id="bf-plus"><option value="0" ${neg ? 'selected' : ''}>הכנסה (מינוס הוא הוצאה)</option><option value="1" ${neg ? '' : 'selected'}>הוצאה (כמו בפירוט כרטיס אשראי)</option></select>`;
+    m.querySelectorAll('[data-bf],#bf-plus').forEach(s => s.onchange = refresh); refresh();
+  };
+  m.querySelector('#bf-text').addEventListener('change', e => run(e.target.value));
+  m.querySelector('#bf-file').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; if (f.size > 5e6) { toast('הקובץ גדול מדי'); return; } if (/\.xlsx?$/i.test(f.name)) { toast('באקסל: שמירה בשם ← CSV'); return; } const txt = await bfDecode(f); m.querySelector('#bf-text').value = txt; run(txt); });
+  m.querySelector('#bf-no').onclick = () => m.remove();
+  m.querySelector('#bf-ok').onclick = () => {
+    const fresh = (built?.rows || []).filter(t => !t.dup); if (!fresh.length) return;
+    const bank = m.querySelector('#bf-bank').value.trim() || 'קובץ בנק', batch = 'imp-' + today() + '-' + Date.now().toString(36);
+    // תנועה חדשה מסווגת כמו תנועה דומה שכבר סווגה (אותו תיאור בלי מספרים)
+    fresh.forEach((t, i) => put('tx', withCat({ id: `f-${batch.slice(4)}-${i}`, type: t.type, amount: t.amount, note: t.note, date: t.date, ...(t.vd ? { vd: t.vd } : {}), acct: '', bank, imp: batch }, ruleCat(t.note))));
+    toast(`יובאו ${fresh.length} תנועות`); built = null; table = null; m.querySelector('#bf-map').innerHTML = ''; m.querySelector('#bf-prev').innerHTML = ''; m.querySelector('#bf-ok').disabled = true; m.querySelector('#bf-text').value = ''; hist(); render();
+  };
+  hist();
+}
+/* ---------- העברות בין החשבונות שלך: יציאה מחשבון אחד וכניסה לאחר באותו סכום, ולכן לא הוצאה ולא הכנסה ---------- */
+const TR_DAYS = 3;
+function trPairs() {
+  const tx = S.data.tx.filter(t => !t.del && !t.tr && !dupIds().has(t.id) && bankOf(t));
+  const outs = tx.filter(t => t.type !== 'income').sort((a, b) => String(a.date).localeCompare(b.date)), ins = tx.filter(t => t.type === 'income'), used = new Set(), pairs = [];
+  outs.forEach(o => {
+    const d = Date.parse(o.date); let best = null, gap = Infinity;
+    ins.forEach(i => { const g = Math.abs(Date.parse(i.date) - d) / 864e5; if (!used.has(i.id) && bankOf(i) !== bankOf(o) && Math.abs(i.amount - o.amount) < 0.015 && g <= TR_DAYS && g < gap) { best = i; gap = g; } });
+    if (best) { used.add(best.id); pairs.push([o, best]); }
+  });
+  return pairs;
+}
+function trMarked() {
+  const g = {}; S.data.tx.filter(t => !t.del && t.tr).forEach(t => { (g[t.tr] = g[t.tr] || []).push(t); });
+  return Object.values(g);
+}
+function transfers() {
+  const m = modal(`<h2>העברות בין החשבונות שלך</h2><p class="mut">העברה בין חשבונות לא נספרת כהוצאה וגם לא כהכנסה. כאן מוצגים זוגות חשודים: יציאה מחשבון אחד וכניסה לחשבון אחר באותו סכום, בהפרש של עד ${TR_DAYS} ימים. מסמנים רק את מה שבאמת העברה שלך.</p><div id="tr-list"></div><div class="row" style="margin-top:12px"><button class="b" id="tr-ok">סימון כהעברה</button><button class="b sec" id="tr-no">סגירה</button></div><div id="tr-done"></div>`);
+  let pairs = [];
+  const draw = () => {
+    pairs = trPairs();
+    m.querySelector('#tr-list').innerHTML = pairs.length ? `<div class="scroll"><table><tr><th></th><th>יצא מ</th><th>נכנס ל</th><th>סכום</th><th>תאריכים</th></tr>${pairs.map(([o, i], n) => `<tr><td><input type="checkbox" data-trp="${n}" checked></td><td>${esc(bankOf(o))}</td><td>${esc(bankOf(i))}</td><td class="n">${fmt(o.amount)}</td><td>${esc(String(o.date).slice(5))} ← ${esc(String(i.date).slice(5))}</td></tr>`).join('')}</table></div>` : '<p class="mut">לא נמצאו זוגות חשודים.</p>';
+    m.querySelector('#tr-ok').disabled = !pairs.length;
+    const done = trMarked();
+    m.querySelector('#tr-done').innerHTML = done.length ? `<h3>מסומנות כהעברה (${done.length})</h3><div class="scroll"><table>${done.slice(0, 50).map(g => `<tr><td>${esc(g.map(bankOf).join(' ← '))}</td><td class="n">${fmt(g[0].amount)}</td><td>${esc(String(g[0].date).slice(0, 10))}</td><td><button class="ic" data-trun="${esc(g[0].tr)}" title="ביטול סימון">↩️</button></td></tr>`).join('')}</table></div>` : '';
+    m.querySelectorAll('[data-trun]').forEach(b => b.onclick = () => { S.data.tx.filter(t => t.tr === b.dataset.trun).forEach(t => { const { tr, ...rest } = t; put('tx', rest); }); toast('הסימון בוטל'); draw(); render(); });
+  };
+  m.querySelector('#tr-no').onclick = () => m.remove();
+  m.querySelector('#tr-ok').onclick = () => {
+    let n = 0; m.querySelectorAll('[data-trp]:checked').forEach(c => { const [o, i] = pairs[+c.dataset.trp], id = 'tr-' + uid(); put('tx', { ...o, tr: id }); put('tx', { ...i, tr: id }); n++; });
+    toast(n ? `סומנו ${n} העברות` : 'לא נבחר דבר'); draw(); render();
+  };
+  draw();
+}
+/* ---------- פיצול תנועה לכמה סעיפים: התנועה המקורית נשארת (מסומנת כפוצלה ולא נספרת) והחלקים נספרים במקומה ---------- */
+function splitTx(t) {
+  if (!t) return;
+  const groups = catGroups(t.type), optsHtml = c => `<option value="">ללא סעיף</option>${groups.map(([title, names]) => `<optgroup label="${title}">${names.map(n => `<option value="${esc(n)}" ${n === c ? 'selected' : ''}>${esc(n)}</option>`).join('')}</optgroup>`).join('')}`;
+  const half = Math.round(t.amount * 50) / 100, parts = [{ amount: half, cat: t.cat || '', note: t.note || '' }, { amount: Math.round((t.amount - half) * 100) / 100, cat: '', note: t.note || '' }];
+  const m = modal(`<h2>פיצול תנועה</h2><p class="mut">${esc(t.note || '')}: ${fmt(t.amount)}. סכום החלקים חייב להיות שווה לסכום התנועה.</p><div id="sp-rows"></div><p><button class="b sec" id="sp-add">＋ חלק</button> ${canEdit() && ME.role !== 'view' ? '<label class="btn sec" style="margin:0">📎 קריאת חשבונית בבינה<input type="file" id="sp-inv" accept="image/*,.pdf" hidden></label>' : ''}</p><p class="mut" id="sp-inv-note">קריאת חשבונית שולחת את התמונה לספק הבינה שלך. הסכומים תמיד צריך לבדוק.</p><p id="sp-sum"></p>
+    <div class="row"><button class="b" id="sp-ok">פיצול</button><button class="b sec" id="sp-no">ביטול</button></div>`);
+  const draw = () => {
+    m.querySelector('#sp-rows').innerHTML = parts.map((p, i) => `<div class="row"><input data-spa="${i}" type="number" step="any" value="${p.amount}" style="width:90px"><select data-spc="${i}" style="min-width:120px">${optsHtml(p.cat)}</select><input data-spn="${i}" value="${esc(p.note)}" style="flex:1;min-width:100px">${parts.length > 2 ? `<button class="ic" data-spx="${i}">🗑️</button>` : ''}</div>`).join('');
+    const sum = () => Math.round(parts.reduce((a, p) => a + (+p.amount || 0), 0) * 100) / 100, show = () => { const d = Math.round((t.amount - sum()) * 100) / 100; m.querySelector('#sp-sum').innerHTML = d === 0 ? '<span class="good">הסכום מתאים</span>' : `<span class="bad">נשאר ${fmt(d)}</span>`; m.querySelector('#sp-ok').disabled = d !== 0 || parts.some(p => !(+p.amount > 0)); };
+    m.querySelectorAll('[data-spa]').forEach(e => e.oninput = () => { parts[+e.dataset.spa].amount = +e.value; show(); });
+    m.querySelectorAll('[data-spc]').forEach(e => e.onchange = () => { parts[+e.dataset.spc].cat = e.value; });
+    m.querySelectorAll('[data-spn]').forEach(e => e.oninput = () => { parts[+e.dataset.spn].note = e.value; });
+    m.querySelectorAll('[data-spx]').forEach(e => e.onclick = () => { parts.splice(+e.dataset.spx, 1); draw(); });
+    show();
+  };
+  m.querySelector('#sp-add').onclick = () => { parts.push({ amount: 0, cat: '', note: t.note || '' }); draw(); };
+  m.querySelector('#sp-inv')?.addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return; const note = m.querySelector('#sp-inv-note'); note.textContent = 'קורא את החשבונית…';
+    const fd = new FormData(); fd.append('file', f); fd.append('total', t.amount);
+    try {
+      const r = await fetch(API + 'invoice', { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRFToken': csrf() }, body: fd }), j = await r.json().catch(() => ({}));
+      if (!j.items) { note.textContent = j.error || 'הקריאה נכשלה'; return; }
+      parts.splice(0, parts.length, ...j.items.map(i => ({ amount: i.amount, cat: '', note: i.description || t.note || '' })));
+      note.textContent = 'הפריטים נקראו מהחשבונית. בדוק את הסכומים ובחר סעיף לכל חלק.'; draw();
+    } catch { note.textContent = 'אין חיבור, נסה שוב'; }
+  });
+  m.querySelector('#sp-no').onclick = () => m.remove();
+  m.querySelector('#sp-ok').onclick = () => {
+    const base = uid();
+    parts.forEach((p, i) => put('tx', { id: `s-${base}-${i}`, type: t.type, amount: +p.amount, cat: p.cat, note: p.note, date: t.date, acct: t.acct || '', bank: bankOf(t), par: t.id }));
+    put('tx', { ...t, sp: 1 }); m.remove(); toast('התנועה פוצלה'); render();
+  };
+  draw();
+}
+/* ---------- חיובים חוזרים: אותו תיאור (בלי מספרים) בלפחות 3 חודשים שונים, בסכום דומה ----------- */
+function recurringTx() {
+  const g = {};
+  live('tx').filter(t => t.type !== 'income').forEach(t => { const k = normNote(t.note); if (k) (g[k] = g[k] || []).push(t); });
+  return Object.entries(g).map(([k, ts]) => {
+    const months = [...new Set(ts.map(t => String(t.date).slice(0, 7)))].sort(), amts = ts.map(t => +t.amount).sort((a, b) => a - b), med = amts[Math.floor(amts.length / 2)];
+    const steady = amts.filter(a => Math.abs(a - med) <= med * 0.1).length / amts.length >= 0.7;
+    return { key: k, months, n: ts.length, med, day: Math.round(ts.reduce((a, t) => a + +String(t.date).slice(8, 10), 0) / ts.length), cat: ts[ts.length - 1].cat || '', steady };
+  }).filter(r => r.months.length >= 3 && r.steady && r.n <= r.months.length * 1.5).sort((a, b) => b.med - a.med);
+}
+function recurringModal() {
+  const rs = recurringTx(), total = rs.reduce((a, r) => a + r.med, 0);
+  const m = modal(`<h2>חיובים חוזרים</h2><p class="mut">תנועות עם אותו תיאור שחוזרות בלפחות 3 חודשים בסכום דומה: מנויים, הוראות קבע וחיובים קבועים. כדאי לעבור ולבדוק אם יש מנוי ששכחת.</p>
+    ${rs.length ? `<p>סה"כ בערך <b>${fmt(total)}</b> לחודש</p><div class="scroll"><table><tr><th>תיאור</th><th>סכום</th><th>חודשים</th><th>בערך ביום</th><th>סעיף</th></tr>${rs.slice(0, 80).map(r => `<tr><td>${esc(r.key)}</td><td class="n">${fmt(r.med)}</td><td>${r.months.length}</td><td>${r.day}</td><td>${esc(r.cat || '—')}</td></tr>`).join('')}</table></div>` : '<p class="mut">עוד אין מספיק היסטוריה לזיהוי חיובים חוזרים.</p>'}
+    <div class="row" style="margin-top:12px"><button class="b sec" id="rc-no">סגירה</button></div>`);
+  m.querySelector('#rc-no').onclick = () => m.remove();
+}
+/* ---------- כללי סיווג: מילה בתיאור התנועה קובעת סעיף. הארוך והספציפי קודם ---------- */
+const ruleList = () => live('rules').map(r => ({ ...r, nk: normNote(r.key) })).filter(r => r.nk && r.cat).sort((a, b) => b.nk.length - a.nk.length);
+const ruleCat = note => { const n = normNote(note); return (ruleList().find(r => n.includes(r.nk)) || {}).cat || ''; };
+function ruleSuggestions() {
+  const have = ruleList(), g = {};
+  live('tx').filter(t => t.cat && t.note).forEach(t => { const k = normNote(t.note); if (k.length >= 3) { const o = g[k] = g[k] || { key: k, cats: {}, n: 0 }; o.n++; o.cats[t.cat] = (o.cats[t.cat] || 0) + 1; } });
+  return Object.values(g).filter(o => o.n >= 2 && !have.some(r => o.key.includes(r.nk))).map(o => { const [cat, c] = Object.entries(o.cats).sort((a, b) => b[1] - a[1])[0]; return { key: o.key, cat, n: o.n, sure: c === o.n }; }).filter(o => o.sure).sort((a, b) => b.n - a.n).slice(0, 30);
+}
+const byCat = rs => Object.entries(rs.reduce((a, r) => ((a[r.cat] = a[r.cat] || []).push(r), a), {})).sort((a, b) => a[0].localeCompare(b[0], 'he'));
+function rulesModal() {
+  const m = modal('<div id="rl-body"></div>'), body = m.querySelector('#rl-body'); m.classList.add('wide');
+  const catOpts = (sel = '') => `<option value="">בחירת סעיף</option>${[...catGroups('expense'), ...catGroups('income').filter(g => !EXTRA_G.includes(g[0])).map(g => [g[0] + ' (הכנסות)', g[1]])].map(([title, names]) => `<optgroup label="${title}">${names.map(n => `<option value="${esc(n)}" ${n === sel ? 'selected' : ''}>${esc(n)}</option>`).join('')}</optgroup>`).join('')}`;
+  const ensureCat = val => val;
+  const draw = () => {
+    const rs = ruleList(), sg = ruleSuggestions(), fq = clsGroups().filter(g => g.n >= 3 && !g.cat && g.key !== '(ללא תיאור)' && !ruleCat(g.key)).sort((a, b) => b.n - a.n).slice(0, 12), uncat = live('tx').filter(t => !t.cat && ruleCat(t.note)).length;
+    body.innerHTML = `<h2>כללי סיווג</h2><p class="mut"><b>איך זה עובד:</b> כותבים מילה שמופיעה בתיאור של תנועה בבנק (למשל "שופרסל"), בוחרים לאיזה סעיף היא שייכת, ולוחצים "הוספת כלל". מעכשיו כל תנועה שהתיאור שלה מכיל את המילה תקבל את הסעיף לבד. הכלל פועל על תנועות חדשות, ואפשר גם להחיל אותו על תנועות ישנות שאין להן סעיף (הכפתור למטה).</p><p class="mut"><b>אין סעיף מתאים?</b> קודם יוצרים קטגוריה בטופס "קטגוריה חדשה" בהמשך החלון, ואז חוזרים לכאן.</p>
+      <h3>יצירת כלל</h3><div class="rl-form"><input id="rl-k" placeholder="מילה בתיאור, למשל שופרסל"><select id="rl-c">${catOpts()}</select><button class="b" id="rl-add">הוספת כלל</button></div>
+      <h3>הכללים הקיימים (${rs.length})</h3>
+      ${rs.length ? `<p class="mut">אפשר לשנות את המילה או את הסעיף ולשמור, או למחוק כלל. שינוי בכלל משפיע על תנועות חדשות בלבד.</p><div class="scroll"><table>${rs.map((r, i) => `<tr><td><input data-rke="${i}" value="${esc(r.key)}" style="min-width:110px"></td><td><select data-rce="${i}">${catOpts(r.cat)}</select></td><td><button class="b sec" data-rse="${i}">שמירה</button> <button class="ic" data-rldel="${esc(r.id)}" title="מחיקה">✕</button></td></tr>`).join('')}</table></div>` : '<p class="mut">עוד אין כללים.</p>'}
+      <h3>קטגוריה חדשה</h3><p class="mut">אין סעיף מתאים ברשימה? יוצרים כאן. מגדירים שם, אם היא חוזרת כל חודש או פעם בשנה, האם זו הכנסה או הוצאה, והאם הסכום קבוע או משתנה. "שונות" היא קטגוריה כללית שנספרת בהכנסות או בהוצאות. "לא קשור" לא נספרת בכלל, למשל העברה בין חשבונות או הלוואה לחבר וההחזר שלו. אחרי היצירה היא תופיע ברשימת הסעיפים של הכלל.</p><div class="rl-form"><input id="nc-n" placeholder="שם הקטגוריה, למשל חוגים"><select id="nc-f"><option value="monthly">חודשית</option><option value="yearly">שנתית</option></select><select id="nc-t"><option value="expense">הוצאה</option><option value="income">הכנסה</option><option value="misc">שונות (נספרת)</option><option value="nb">לא קשור (לא נספרת)</option></select><select id="nc-k"><option value="fixed">קבועה (אותו סכום)</option><option value="var">לא קבועה (משתנה)</option></select><button class="b sec" id="nc-add">הוספת קטגוריה</button></div>
+      ${fq.length ? `<h3>תיאורים נפוצים בלי סעיף</h3><p class="mut">מופיעים הרבה ואין להם סעיף. בוחרים סעיף ויוצרים כלל:</p><div class="scroll"><table>${fq.map((o, i) => `<tr><td>${esc(o.key)}</td><td class="mut">הופיע ${o.n} פעמים</td><td><select data-fqc="${i}" style="min-width:120px">${catOpts()}</select></td><td><button class="b sec" data-fqb="${i}">צור כלל +</button></td></tr>`).join('')}</table></div>` : ''}
+      <p><button class="b sec" id="rl-apply" ${uncat ? '' : 'disabled'}>החלה על ${uncat} תנועות בלי סעיף</button></p>
+      ${sg.length ? `<h3>הצעות</h3><p class="mut">תיאורים שסיווגת כבר כמה פעמים לאותו סעיף:</p><div class="scroll"><table>${sg.map((o, i) => `<tr><td>${esc(o.key)}</td><td>${esc(o.cat)}</td><td>${o.n} פעמים</td><td><button class="b sec" data-rlsg="${i}">הוספה</button></td></tr>`).join('')}</table></div>` : ''}
+      <p style="margin-top:12px"><button class="b" id="rl-cats">🗂 הקטגוריות שלי: ניהול כדף נפרד</button> <span class="mut">שינוי הכנסה / הוצאה, חודשית / שנתית, "לא נספרת" ומחיקה</span></p>
+      <div class="row" style="margin-top:12px"><button class="b sec" id="rl-no">סגירה</button></div>`;
+    body.querySelector('#rl-no').onclick = () => m.remove();
+    body.querySelector('#rl-cats').onclick = () => { m.remove(); tab = 'cats'; render(); scrollTo(0, 0); };
+    body.querySelector('#rl-add').onclick = async () => { const key = body.querySelector('#rl-k').value.trim(), cat = ensureCat(body.querySelector('#rl-c').value); if (!normNote(key)) return toast('כותבים מילה מהתיאור'); if (!cat) return toast('לא נבחר סעיף. אם אין סעיף מתאים, קודם יוצרים קטגוריה בטופס "קטגוריה חדשה" למטה.'); if (!await ask(`ליצור כלל: כל תנועה שהתיאור שלה מכיל "${key}" תסווג ל"${cat}"?`)) return; put('rules', { id: 'r-' + uid(), key, cat }); toast('הכלל נוסף'); draw(); render(); };
+    body.querySelector('#nc-t').onchange = e => { const x = e.target.value === 'misc' || e.target.value === 'nb'; body.querySelector('#nc-f').disabled = x; body.querySelector('#nc-k').disabled = x; };
+    body.querySelector('#nc-add').onclick = () => {
+      const name = body.querySelector('#nc-n').value.trim(), freq = body.querySelector('#nc-f').value, typ = body.querySelector('#nc-t').value, inc = typ === 'income', fixed = body.querySelector('#nc-k').value === 'fixed';
+      if (typ === 'misc' || typ === 'nb') {
+        if (!name) return toast('כותבים שם לקטגוריה');
+        const key = typ === 'nb' ? 'nbCats' : 'miscCats', cur = typ === 'nb' ? nbCats() : miscCats();
+        if (cur.includes(name)) return toast('כבר יש קטגוריה כזו בשם "' + name + '"');
+        S.settings[key] = [...cur, name]; save();
+        toast('הקטגוריה "' + name + '" נוספה. עכשיו אפשר לבחור אותה בכלל.'); draw(); render(); return;
+      }
+      if (!name) return toast('כותבים שם לקטגוריה');
+      if (freq === 'yearly' ? live('yearly').some(x => x.name === name) : monthlyPlan().some(p => p.name === name)) return toast('כבר יש קטגוריה ' + (freq === 'yearly' ? 'שנתית' : 'חודשית') + ' בשם "' + name + '". בוחרים אותה ברשימת הסעיפים של הכלל.');
+      if (freq === 'yearly') put('yearly', { id: 'y-' + uid(), kind: inc ? 'income' : 'expense', month: 'כללי', name, amount: '0', year: '', fixed });
+      else put('plan', { id: 'p-' + uid(), kind: inc ? (fixed ? 'income' : 'incomeVar') : (fixed ? 'fixed' : 'variable'), name, amount: '0', active: true });
+      toast('הקטגוריה "' + name + '" נוספה. עכשיו אפשר לבחור אותה בכלל.'); draw(); render();
+    };
+    body.querySelectorAll('[data-rldel]').forEach(b => b.onclick = async () => { const r = live('rules').find(x => x.id === b.dataset.rldel); if (!await ask(`למחוק את הכלל "${r ? r.key : ''}"? תנועות שכבר סווגו לא ישתנו.`)) return; remove('rules', b.dataset.rldel); draw(); });
+    body.querySelectorAll('[data-rse]').forEach(b => b.onclick = async () => {
+      const i = b.dataset.rse, r = rs[+i], key = body.querySelector(`[data-rke="${i}"]`).value.trim(), cat = body.querySelector(`[data-rce="${i}"]`).value;
+      if (!normNote(key)) return toast('כותבים מילה מהתיאור');
+      if (!cat) return toast('בוחרים סעיף לכלל');
+      if (key === r.key && cat === r.cat) return toast('לא שונה כלום');
+      if (!await ask(`לשמור את השינוי? כל תנועה חדשה שהתיאור שלה מכיל "${key}" תסווג ל"${cat}".`)) return;
+      put('rules', { id: r.id, key, cat }); toast('הכלל עודכן'); draw(); render();
+    });
+    body.querySelectorAll('[data-fqb]').forEach(b => b.onclick = async () => { const o = fq[+b.dataset.fqb], cat = ensureCat(body.querySelector(`[data-fqc="${b.dataset.fqb}"]`).value); if (!cat) return toast('בוחרים סעיף'); const cnt = live('tx').filter(t => !t.cat && normNote(t.note).includes(normNote(o.key))).length; if (!await ask(`ליצור כלל: "${o.key}" ← "${cat}"? הסעיף יעודכן גם ב-${cnt} תנועות שאין להן סעיף.`)) return; put('rules', { id: 'r-' + uid(), key: o.key, cat }); let n = 0; live('tx').filter(t => !t.cat && normNote(t.note).includes(normNote(o.key))).forEach(t => { put('tx', withCat(t, cat)); n++; }); toast(`נוצר כלל, והסעיף עודכן ב-${n} תנועות`); draw(); render(); });
+    body.querySelectorAll('[data-rlsg]').forEach(b => b.onclick = async () => { const o = sg[+b.dataset.rlsg]; if (!await ask(`ליצור כלל: "${o.key}" ← "${o.cat}"?`)) return; put('rules', { id: 'r-' + uid(), key: o.key, cat: o.cat }); draw(); });
+    body.querySelector('#rl-apply').onclick = async () => { if (!await ask(`להחיל את הכללים על ${uncat} תנועות שאין להן סעיף?`)) return; let n = 0; live('tx').filter(t => !t.cat).forEach(t => { const c = ruleCat(t.note); if (c) { put('tx', withCat(t, c)); n++; } }); toast(`הסעיף עודכן ב-${n} תנועות`); draw(); render(); };
+  };
+  draw();
+}
+/* ---------- בחירת סעיף עם הקלדה וחיפוש (גם בכתיב לא מדויק) ---------- */
+const sNorm = x => String(x || '').toLowerCase().replace(/["'״׳`.,()\-_/]/g, '').replace(/\s+/g, ' ').trim();
+function editDist(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+// ציון התאמה: 0 = לא מתאים, ככל שגבוה יותר כך מתאים יותר
+function fuzzyScore(query, name) {
+  const q = sNorm(query), n = sNorm(name);
+  if (!q) return 1;
+  if (n === q) return 100;
+  if (n.startsWith(q)) return 90;
+  if (n.includes(q)) return 80;
+  const nw = n.split(' ');
+  let total = 0;
+  for (const w of q.split(' ')) {
+    const best = Math.min(...nw.map(x => x.includes(w) || (w.length > 2 && w.includes(x) && x.length > 2) ? 0 : editDist(w, x.slice(0, Math.max(w.length, 1) + 1)) / Math.max(w.length, 1)));
+    if (best > 0.4) return 0;
+    total += best;
+  }
+  return 60 - total * 40;
+}
+function makeSearchable(sel) {
+  if (sel.dataset.srch || sel.multiple || !sel.querySelector('optgroup') || sel.options.length < 8) return;
+  sel.dataset.srch = '1';
+  const wrap = document.createElement('span'), inp = document.createElement('input'), list = document.createElement('div');
+  wrap.style.cssText = 'position:relative;display:inline-block;min-width:150px;max-width:100%;vertical-align:middle;' + (sel.closest('.bud-top') ? '' : 'width:100%');
+  if (sel.classList.contains('uncls')) inp.className = 'uncls'; inp.type = 'text'; inp.autocomplete = 'off'; inp.placeholder = 'הקלדה לחיפוש...'; inp.style.width = '100%';
+  list.style.cssText = 'display:none;position:absolute;inset-inline:0;top:100%;z-index:120;max-height:240px;overflow:auto;background:var(--surface,#fff);color:var(--text,#111);border:1px solid var(--border,#ccc);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.2);text-align:right';
+  sel.style.display = 'none'; sel.before(wrap); wrap.append(inp, list, sel);
+  const label = () => sel.selectedOptions[0] && sel.value ? sel.selectedOptions[0].textContent : '';
+  const shown = () => { inp.value = label(); };
+  const items = () => [...sel.options].map(o => ({ v: o.value, t: o.textContent, g: o.parentElement.tagName === 'OPTGROUP' ? o.parentElement.label : '' }));
+  const fill = q => {
+    const rows = items().map(o => ({ ...o, sc: o.v ? fuzzyScore(q, o.t) : (q ? 0 : 1) })).filter(o => o.sc > 0);
+    if (q) rows.sort((a, b) => b.sc - a.sc);
+    list.innerHTML = rows.length ? '' : '<div style="padding:.6rem .8rem;opacity:.7">לא נמצא סעיף דומה</div>';
+    let lastG = null;
+    rows.forEach(o => {
+      if (!q && o.g !== lastG && o.g) { lastG = o.g; const h = document.createElement('div'); h.textContent = o.g; h.style.cssText = 'padding:.3rem .8rem;font-weight:700;opacity:.7;font-size:.85em'; list.append(h); }
+      const d = document.createElement('div'); d.textContent = o.t + (q && o.g ? ' · ' + o.g : ''); d.style.cssText = 'padding:.55rem .8rem;cursor:pointer;' + (o.v === sel.value ? 'font-weight:700' : '');
+      d.onmousedown = e => { e.preventDefault(); markNear(inp); sel.value = o.v; sel.dispatchEvent(new Event('change', { bubbles: true })); shown(); list.style.display = 'none'; inp.blur(); };
+      list.append(d);
+    });
+  };
+  inp.onfocus = () => { inp.select(); fill(''); list.style.display = 'block'; };
+  inp.oninput = () => { fill(inp.value); list.style.display = 'block'; };
+  inp.onblur = () => { list.style.display = 'none'; shown(); };
+  inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); const f = list.querySelector('div[style*="cursor"]'); if (f) f.onmousedown(e); } };
+  shown();
+}
+(() => {
+  const run = root => (root.querySelectorAll ? root.querySelectorAll('select') : []).forEach(makeSearchable);
+  const go = () => { run(document); new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => n.nodeType === 1 && (n.tagName === 'SELECT' ? makeSearchable(n) : run(n))))).observe(document.body, { childList: true, subtree: true }); };
+  document.body ? go() : document.addEventListener('DOMContentLoaded', go);
+})();
+/* ---------- ניהול קטגוריות כדף נפרד: סוג, תדירות, "לא נספרת" ומחיקה ---------- */
+const catRowsAll = () => [
+  ...monthlyPlan().map(x => ({ c: 'plan', x, inc: x.kind === 'income' || x.kind === 'incomeVar', fixed: x.kind === 'income' || x.kind === 'fixed', special: ['consumption', 'charity'].includes(x.kind) ? x.kind : '' })),
+  ...live('yearly').map(x => ({ c: 'yearly', x, inc: x.kind === 'income', fixed: !!x.fixed, special: '' }))];
+const planKind = (inc, fixed) => inc ? (fixed ? 'income' : 'incomeVar') : (fixed ? 'fixed' : 'variable');
+function catAdd(freq, name, inc, fixed, amount) {
+  if (freq === 'yearly') put('yearly', { id: 'y-' + uid(), kind: inc ? 'income' : 'expense', month: 'כללי', name, amount: String(amount || 0), year: '', fixed });
+  else put('plan', { id: 'p-' + uid(), kind: planKind(inc, fixed), name, amount: String(amount || 0), active: true });
+}
+V.cats = () => {
+  const rows = catRowsAll(), nb = nbCats(), misc = miscCats();
+  const row = r => `<tr><td>${esc(r.x.name)}</td>
+    <td><select data-cx="${r.c}|${esc(r.x.id)}|q"><option value="plan" ${r.c === 'plan' ? 'selected' : ''}>חודשית</option><option value="yearly" ${r.c === 'yearly' ? 'selected' : ''}>שנתית</option></select></td>
+    <td><select data-cx="${r.c}|${esc(r.x.id)}|t"><option value="expense" ${r.inc ? '' : 'selected'}>הוצאה</option><option value="income" ${r.inc ? 'selected' : ''}>הכנסה</option></select></td>
+    <td>${r.c === 'plan' ? `<select data-cx="${r.c}|${esc(r.x.id)}|f"><option value="fixed" ${r.fixed ? 'selected' : ''}>קבועה</option><option value="var" ${!r.fixed && !r.special ? 'selected' : ''}>משתנה</option>${r.special ? `<option value="${r.special}" selected>${PLAN_KINDS[r.special]}</option>` : ''}</select>` : '<span class="mut">—</span>'}</td>
+    <td style="white-space:nowrap"><button class="b sec" data-cnb="${r.c}|${esc(r.x.id)}" title="לא נספרת בתקציב">🚫 לא נספרת</button> <button class="b red" data-cdel="${r.c}|${esc(r.x.id)}" title="מחיקה" aria-label="מחיקת ${esc(r.x.name)}">🗑️</button></td></tr>`;
+  const back = n => `<tr><td>${esc(n)}</td><td colspan="3"><select data-cback="${esc(n)}"><option value="">להחזיר לספירה כ…</option><option value="plan|0">הוצאה חודשית</option><option value="plan|1">הכנסה חודשית</option><option value="yearly|0">הוצאה שנתית</option><option value="yearly|1">הכנסה שנתית</option></select></td><td><button class="b red" data-cnbdel="${esc(n)}" aria-label="מחיקת ${esc(n)}">🗑️</button></td></tr>`;
+  return `<div class="card"><p><button class="b sec" id="cats-back">→ חזרה לסיווג</button></p><h2>🗂 הקטגוריות שלי</h2>
+    <p class="mut">כל הקטגוריות במקום אחד. אפשר לשנות לכל אחת: הכנסה או הוצאה, חודשית או שנתית (הסכום מתורגם: חודשי × 12 לשנתי), קבועה או משתנה, "לא נספרת" (תנועות שלה לא נכנסות לתקציב), או למחוק. תנועות שכבר סווגו נשארות עם שם הקטגוריה.</p>
+    <p><button class="b sec" id="cats-rules">🏷️ כללי סיווג וקטגוריה חדשה</button></p>
+    <h3>קטגוריות נספרות (${rows.length})</h3>
+    ${rows.length ? `<div class="scroll"><table><tr><th>שם</th><th>תדירות</th><th>סוג</th><th>קבועה / משתנה</th><th></th></tr>${rows.map(row).join('')}</table></div>` : '<p class="mut">אין קטגוריות.</p>'}
+    <h3>לא נספרות (${nb.length})</h3><p class="mut">תנועות בקטגוריות האלה לא נספרות בהכנסות ובהוצאות.</p>
+    ${nb.length ? `<div class="scroll"><table>${nb.map(back).join('')}</table></div>` : '<p class="mut">אין.</p>'}
+    ${misc.length ? `<h3>שונות (${misc.length})</h3><div class="scroll"><table>${misc.map(n => `<tr><td>${esc(n)}</td><td><button class="b red" data-cmdel="${esc(n)}" aria-label="מחיקת ${esc(n)}">🗑️</button></td></tr>`).join('')}</table></div>` : ''}</div>`;
+};
+function bindCats() {
+  const R = $('#app'), find = key => { const [c, id] = key.split('|'); return { c, x: live(c).find(r => r.id === id) }; };
+  $('#cats-back')?.addEventListener('click', () => { tab = 'cls'; render(); scrollTo(0, 0); });
+  $('#cats-rules')?.addEventListener('click', rulesModal);
+  R.querySelectorAll('[data-cx]').forEach(el => el.onchange = async () => {
+    const [c, id, w] = el.dataset.cx.split('|'), x = live(c).find(r => r.id === id);
+    if (!x) return toast('הקטגוריה לא נמצאה, נסו לרענן');
+    if (!await ask(`לשנות את הקטגוריה "${x.name}"? זה משפיע על התקציב והדוחות.`)) return render();
+    const inc = c === 'plan' ? (x.kind === 'income' || x.kind === 'incomeVar') : x.kind === 'income', fixed = c === 'plan' ? (x.kind === 'income' || x.kind === 'fixed') : !!x.fixed;
+    if (w === 'q') {
+      const to = el.value; if (to === c) return render();
+      if (to === 'yearly' ? live('yearly').some(y => y.name === x.name) : monthlyPlan().some(p => p.name === x.name)) { toast('כבר יש קטגוריה ' + (to === 'yearly' ? 'שנתית' : 'חודשית') + ' בשם "' + x.name + '"'); return render(); }
+      const amt = c === 'plan' ? Math.round((+x.amount || 0) * 12) : Math.round((+x.amount || 0) / 12);
+      catAdd(to, x.name, inc, fixed, amt); remove(c, x.id);
+    } else if (c === 'yearly') put('yearly', w === 't' ? { ...x, kind: el.value } : x);
+    else {
+      const ninc = w === 't' ? el.value === 'income' : inc, nfixed = w === 'f' ? el.value === 'fixed' : fixed;
+      const sp = w === 'f' && ['consumption', 'charity'].includes(el.value) ? el.value : '';
+      put('plan', { ...x, kind: sp && !ninc ? sp : planKind(ninc, nfixed) });
+    }
+    toast('הקטגוריה "' + x.name + '" עודכנה'); render();
+  });
+  R.querySelectorAll('[data-cnb]').forEach(b => b.onclick = async () => {
+    const { c, x } = find(b.dataset.cnb); if (!x) return;
+    if (!await ask(`להגדיר את "${x.name}" כלא נספרת? התנועות שלה לא ייכנסו לתקציב, והיא תוסר מהקטגוריות הנספרות.`)) return;
+    if (!nbCats().includes(x.name)) { S.settings.nbCats = [...nbCats(), x.name]; save(); }
+    remove(c, x.id); live('tx').filter(t => t.cat === x.name).forEach(t => put('tx', withCat(t, x.name)));
+    toast('"' + x.name + '" הוגדרה כלא נספרת'); render();
+  });
+  R.querySelectorAll('[data-cdel]').forEach(b => b.onclick = async () => {
+    const { c, x } = find(b.dataset.cdel); if (!x) return;
+    if (!await ask(`למחוק את הקטגוריה "${x.name}"? תנועות שכבר סווגו אליה יישארו עם השם שלה.`)) return;
+    remove(c, x.id); toast('הקטגוריה נמחקה'); render();
+  });
+  R.querySelectorAll('[data-cback]').forEach(el => el.onchange = async () => {
+    if (!el.value) return; const n = el.dataset.cback, [freq, inc] = el.value.split('|');
+    if (!await ask(`להחזיר את "${n}" להיספר בתקציב?`)) return render();
+    catAdd(freq, n, inc === '1', true, 0);
+    S.settings.nbCats = nbCats().filter(x => x !== n); save();
+    live('tx').filter(t => t.cat === n && t.nb).forEach(t => put('tx', { ...t, nb: false }));
+    toast('"' + n + '" חזרה להיספר'); render();
+  });
+  R.querySelectorAll('[data-cnbdel]').forEach(b => b.onclick = async () => {
+    const n = b.dataset.cnbdel; if (!await ask(`למחוק את "${n}" מהרשימה? תנועות שכבר סווגו אליה יישארו עם השם שלה.`)) return;
+    S.settings.nbCats = nbCats().filter(x => x !== n); save(); toast('נמחקה'); render();
+  });
+  R.querySelectorAll('[data-cmdel]').forEach(b => b.onclick = async () => {
+    const n = b.dataset.cmdel; if (!await ask(`למחוק את "${n}" מהקטגוריות שונות?`)) return;
+    S.settings.miscCats = miscCats().filter(x => x !== n); save(); toast('נמחקה'); render();
+  });
+}
+/* ---------- סיווג לפי תיאור: דברים שחוזרים על עצמם מופיעים פעם אחת ומסווגים בבת אחת ---------- */
+const normNote = n => String(n || '').replace(/[₪]|סכום העסקה|מתוך/g, ' ').replace(/\d[\d,./:-]*/g, ' ').replace(/[\s\-:]+/g, ' ').trim();
+let clsf = { q: '', none: true, limit: 60 };
+function clsGroups() {
+  const g = {};
+  live('tx').forEach(t => {
+    const k = normNote(t.note) || '(ללא תיאור)', x = g[k] = g[k] || { key: k, ids: [], n: 0, inc: 0, exp: 0, cats: {}, banks: new Set(), type: t.type };
+    x.ids.push(t.id); x.n++; (t.type === 'income' ? (x.inc += +t.amount) : (x.exp += +t.amount)); x.cats[t.cat || ''] = (x.cats[t.cat || ''] || 0) + 1; x.banks.add(bankOf(t));
+  });
+  return Object.values(g).map(x => ({ ...x, cat: Object.entries(x.cats).sort((a, b) => b[1] - a[1])[0][0], mixed: Object.keys(x.cats).length > 1 }));
+}
+V.cls = () => {
+  const q = clsf.q.trim(), all = clsGroups(), rows = all.filter(x => (!clsf.none || !x.cat || x.mixed) && (!q || x.key.includes(q))).sort((a, b) => (b.inc + b.exp) - (a.inc + a.exp));
+  const opts = x => { const groups = catGroups(x.inc > x.exp ? 'income' : 'expense'), known = groups.some(g => g[1].includes(x.cat)); return `<option value="">ללא סעיף (אחר)</option>${x.cat && !known ? `<option value="${esc(x.cat)}" selected>${esc(x.cat)}</option>` : ''}${groups.map(([title, names]) => `<optgroup label="${title}">${names.map(n => `<option value="${esc(n)}" ${n === x.cat && !x.mixed ? 'selected' : ''}>${esc(n)}</option>`).join('')}</optgroup>`).join('')}`; };
+  return `<div class="card"><h2>סיווג לפי תיאור</h2><p class="mut">חיובים דומים (הוראת קבע, תשלומים, אותו מקום עם סכומים שונים) מופיעים כאן פעם אחת. בוחרים סעיף פעם אחת והוא חל על כל התנועות, וגם על תנועות חדשות שייקלטו.</p>
+    <div class="row"><input id="cls-q" placeholder="חיפוש תיאור" value="${esc(clsf.q)}"><label><input type="checkbox" id="cls-none" ${clsf.none ? 'checked' : ''}> רק מה שלא סווג</label></div>
+    <p class="mut">${rows.length} קבוצות מתוך ${all.length}</p>
+    ${rows.length ? `<div class="scroll"><table class="cls"><tr><th>תיאור</th><th>תנועות</th><th>סה"כ</th><th>סעיף</th></tr>${rows.slice(0, clsf.limit).map((x, i) => `<tr><td>${esc(x.key)}<div class="mut">${esc([...x.banks].filter(Boolean).join(', '))}</div></td><td class="n">${x.n}</td><td class="n ${x.inc > x.exp ? 'good' : 'bad'}">${fmt(x.inc > x.exp ? x.inc : x.exp)}</td><td>${canEdit() ? `<select data-cls="${esc(x.key)}">${opts(x)}</select>${x.mixed ? '<div class="mut">יש כמה סעיפים בקבוצה</div>' : ''}` : esc(x.cat || '—')}</td></tr>`).join('')}</table></div>${rows.length > clsf.limit ? `<p><button class="b sec" id="cls-more">הצג עוד (${rows.length - clsf.limit})</button></p>` : ''}` : '<p class="mut">אין קבוצות להצגה.</p>'}</div>`;
+};
+function bindCls() {
+  $('#cls-q')?.addEventListener('change', e => { clsf.q = e.target.value; clsf.limit = 60; render(); });
+  $('#cls-none')?.addEventListener('change', e => { clsf.none = e.target.checked; clsf.limit = 60; render(); });
+  $('#cls-more')?.addEventListener('click', () => { clsf.limit += 100; render(); });
+  $('#app').querySelectorAll('[data-cls]').forEach(sel => sel.onchange = async () => {
+    const key = sel.dataset.cls, cat = sel.value, hit = live('tx').filter(t => (normNote(t.note) || '(ללא תיאור)') === key); let n = 0;
+    if (!await ask(cat ? `לשייך ${hit.length} תנועות עם התיאור "${key}" לסעיף "${cat}"?` : `להסיר את הסעיף מ-${hit.length} תנועות עם התיאור "${key}"?`)) return render();
+    hit.forEach(t => { put('tx', withCat(t, cat)); n++; });
+    toast(`הסעיף עודכן ב-${n} תנועות`); render();
+  });
+}
+function bindTxs() {
+  const R = $('#app'), again = () => { txf.limit = 100; render(); };
+  if (!SYNC) syncLoad();
+  $('#sync-now')?.addEventListener('click', syncNow);
+  $('#bf-open')?.addEventListener('click', bankImport);
+  $('#bk-hide')?.addEventListener('click', () => { const h = hiddenBanks(); S.settings.hiddenBanks = h.includes(txf.bank) ? h.filter(x => x !== txf.bank) : [...h, txf.bank]; save(); render(); });
+  $('#tr-open')?.addEventListener('click', transfers);
+  $('#rc-open')?.addEventListener('click', recurringModal);
+  $('#rl-open')?.addEventListener('click', rulesModal);
+  $('#cats-open')?.addEventListener('click', () => { tab = 'cats'; render(); scrollTo(0, 0); });
+  R.querySelectorAll('[data-sel]').forEach(c => c.onchange = () => { c.checked ? txSel.add(c.dataset.sel) : txSel.delete(c.dataset.sel); });
+  $('#tx-all')?.addEventListener('change', e => { R.querySelectorAll('[data-sel]').forEach(c => { c.checked = e.target.checked; e.target.checked ? txSel.add(c.dataset.sel) : txSel.delete(c.dataset.sel); }); });
+  const picked = () => S.data.tx.filter(t => txSel.has(t.id) && !t.del);
+  $('#tx-bulkset')?.addEventListener('click', async () => { const cat = $('#tx-bulkcat').value, ts = picked(); if (!cat || !ts.length) return toast('בוחרים סעיף וסימון תנועות'); if (!await ask(`לשנות את הסעיף של ${ts.length} תנועות מסומנות ל"${cat}"?`)) return; ts.forEach(t => put('tx', withCat(t, cat))); txSel.clear(); toast(`הסעיף עודכן ב-${ts.length} תנועות`); render(); });
+  $('#tx-bulkdel')?.addEventListener('click', () => { const ts = picked(); if (!ts.length) return toast('לא סומנו תנועות'); ask(`למחוק ${ts.length} תנועות?`, () => { ts.forEach(t => remove('tx', t.id)); txSel.clear(); render(); }); });
+  R.querySelectorAll('[data-dup]').forEach(b => b.onclick = () => { const t = S.data.tx.find(x => x.id === b.dataset.dup); if (!t) return; const { tr, sp, par, imp, pd, ...rest } = t; put('tx', { ...rest, id: 'd-' + uid(), bank: bankOf(t) }); toast('התנועה שוכפלה'); render(); });
+  R.querySelectorAll('[data-split]').forEach(b => b.onclick = () => splitTx(S.data.tx.find(x => x.id === b.dataset.split)));
+  R.querySelectorAll('[data-unsplit]').forEach(b => b.onclick = () => { const id = b.dataset.unsplit; ask('לבטל את הפיצול? החלקים יימחקו.', () => { S.data.tx.filter(t => t.par === id).forEach(t => remove('tx', t.id)); const t = S.data.tx.find(x => x.id === id); if (t) { const { sp, ...rest } = t; put('tx', rest); } render(); }); });
+  $('#tx-month')?.addEventListener('change', e => { txf.month = e.target.value; again(); });
+  $('#tx-bank')?.addEventListener('change', e => { txf.bank = e.target.value; again(); });
+  $('#tx-q')?.addEventListener('change', e => { txf.q = e.target.value; again(); });
+  R.querySelectorAll('[data-txchip]').forEach(b => b.onclick = () => { txf.cat = txf.cat === b.dataset.txchip ? '' : b.dataset.txchip; again(); });
+  $('#tx-chipclear')?.addEventListener('click', () => { txf.cat = ''; again(); });
+  $('#tx-none')?.addEventListener('change', e => { txf.none = e.target.checked; again(); });
+  $('#tx-more')?.addEventListener('click', () => { txf.limit += 200; render(); });
+  R.querySelectorAll('[data-txcat]').forEach(sel => sel.onchange = () => setTxCat(sel.dataset.txcat, sel.value));
+}
+
+/* ---------- ייבוא פירוט משכנתא מקובץ (CSV או הדבקה מהאקסל) ---------- */
+// שדות שמחפשים בכותרות הטבלה. סדר העיבוד חשוב: "שנותרו" נבדק לפני "מספר תשלומים"
+const MG_FIELDS = [
+  ['name', 'שם המסלול', /שם.?מסלול|מסלול|תיאור/],
+  ['kind', 'סוג הריבית (קבועה / פריים / משתנה)', /סוג.?ריבית|עוגן|סוג/],
+  ['rate', 'ריבית (%) או מרווח מהפריים', /ריבית|מרווח/],
+  ['original', 'סכום מקורי', /סכום.?מקורי|סכום.?ההלוואה|סכום.?המסלול|קרן.?מקורית|סכום.?הקרן/],
+  ['balance', 'יתרה נוכחית', /יתרה|קרן.?נותרת|נותר.?קרן/],
+  ['left', 'תשלומים שנותרו', /שנותרו|נותרו|נותרים/],
+  ['total', 'מספר תשלומים כולל', /(מספר.?תשלומים|תקופה)(?!.*נותר)/],
+  ['start', 'תאריך לקיחה', /תאריך.?(לקיחה|התחלה|ביצוע|תחילת|נטילה|הפקדה)/],
+];
+function mgParseTable(text) {
+  const t = String(text || '').replace(/^﻿/, '').trim(); if (!t) return { headers: [], rows: [] };
+  const first = t.split(/\r?\n/)[0], delim = [['\t', first.split('\t').length], [';', first.split(';').length], [',', first.split(',').length]].sort((a, b) => b[1] - a[1])[0][0];
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (q) { if (c === '"' && t[i + 1] === '"') { cell += '"'; i++; } else if (c === '"') q = false; else cell += c; }
+    else if (c === '"') q = true;
+    else if (c === delim) { row.push(cell.trim()); cell = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && t[i + 1] === '\n') i++; row.push(cell.trim()); if (row.some(Boolean)) rows.push(row); row = []; cell = ''; }
+    else cell += c;
+  }
+  row.push(cell.trim()); if (row.some(Boolean)) rows.push(row);
+  return { headers: rows[0] || [], rows: rows.slice(1) };
+}
+// הדבקה מדף המשכנתאות של פאג"י: כל מסלול הוא רשימת שדות (לא טבלה). מספר התשלומים שנותרו מחושב מהיתרה, הריבית וההחזר החודשי
+function mgFromFieldText(text) {
+  const t = String(text || ''); if (!/מספר\s*משנה/.test(t) || !/יתרת\s*קרן/.test(t)) return null;
+  const parts = t.split(/מספר\s*משנה\s*:?\s*/).slice(1), rows = [];
+  const num = (b, re) => { const m = b.match(re); return m ? mgNum(m[1]) : 0; };
+  parts.forEach(b => {
+    const id = (b.match(/^\s*(\d+)/) || [])[1] || String(rows.length + 1);
+    const bal = num(b, /יתרת\s*קרן[^\d\n]{0,20}([\d,]+\.?\d*)/);
+    const rate = num(b, /ריבית\s*הכוללת\s*החזויה[^\d\n]{0,25}([\d.]+)\s*%|שיעור\s*ריבית[^\d\n]{0,25}([\d.]+)\s*%/) || num(b, /([\d.]+)\s*%/);
+    const pay = num(b, /(?:תשלום|החזר)\s*חודשי[^\d\n]{0,40}([\d,]+\.?\d*)/) || num(b, /תשלום\s*אחרון\s*לחיוב[^\d\n]{0,20}([\d,]+\.?\d*)/) || num(b, /חודש[^\n\d]{0,12}\d{4}[^\d\n]{0,10}([\d,]+\.\d+)/);
+    if (!(bal > 0)) return;
+    const i = rate / 1200; let n = 0;
+    if (pay > 0) n = i > 0 && pay > bal * i ? -Math.log(1 - i * bal / pay) / Math.log(1 + i) : bal / pay;
+    rows.push([`מסלול ${id}`, /פריים/.test(b) ? 'פריים' : 'קבועה', String(rate), String(bal), n > 0 ? String(Math.round(n)) : '']);
+  });
+  return rows.length ? { headers: ['שם המסלול', 'סוג הריבית', 'ריבית', 'יתרה נוכחית', 'תשלומים שנותרו'], rows } : null;
+}
+function mgDetect(headers) {
+  const used = new Set(), map = {};
+  MG_FIELDS.forEach(([k, , re]) => { const i = headers.findIndex((h, n) => !used.has(n) && re.test(h.replace(/["']/g, ''))); map[k] = i; if (i >= 0) used.add(i); });
+  return map;
+}
+const mgNum = v => { const n = parseFloat(String(v ?? '').replace(/[^\d.,-]/g, '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
+const mgDate = v => { const m = String(v || '').match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})|(\d{4})-(\d{2})|(\d{1,2})[./-](\d{4})/); if (!m) return ''; return m[3] ? `${m[3]}-${m[2].padStart(2, '0')}` : m[4] ? `${m[4]}-${m[5]}` : `${m[7]}-${m[6].padStart(2, '0')}`; };
+const mgType = s => /פריים/.test(s) ? 'prime' : /משתנ/.test(s) ? 'var' : 'fixed';
+// מהשורות והמיפוי: מסלולים בפורמט של הדף. יש שתי דרכים: יתרה + תשלומים שנותרו (ההחזרים מתחילים החודש), או סכום מקורי + תשלומים כולל + תאריך
+function mgTracks(rows, map, headers) {
+  const cell = (r, k) => map[k] >= 0 ? r[map[k]] : '', marginCol = map.rate >= 0 && /מרווח/.test(headers[map.rate]);
+  const now = today().slice(0, 7), tracks = [], notes = []; let start = '';
+  rows.forEach(r => {
+    const name = cell(r, 'name') || 'מסלול', kindText = cell(r, 'kind') || name, type = mgType(kindText);
+    let principal = 0, months = 0;
+    if (map.balance >= 0 && map.left >= 0 && mgNum(cell(r, 'balance')) > 0) { principal = mgNum(cell(r, 'balance')); months = Math.round(mgNum(cell(r, 'left'))); start = start || now; }
+    else if (map.original >= 0 && map.total >= 0) { principal = mgNum(cell(r, 'original')); months = Math.round(mgNum(cell(r, 'total'))); const d = mgDate(cell(r, 'start')); if (d && (!start || d < start)) start = d; }
+    if (!(principal > 0 && months > 0)) { notes.push(`דילגתי על "${name}": חסר סכום או מספר תשלומים`); return; }
+    let rate = mgNum(cell(r, 'rate'));
+    // בפריים: מספר קטן (עד 3) הוא כבר המרווח מהפריים, וריבית כוללת (למשל 5.5) הופכת למרווח
+    if (type === 'prime' && !marginCol && Math.abs(rate) >= 3) rate = Math.round((rate - primeNow()) * 100) / 100;
+    tracks.push({ name, type, principal: String(principal), months: String(months), rate: String(rate), link: '0', changes: '' });
+  });
+  return { tracks, start: start || now, notes };
+}
+function mortgageImport() {
+  const m = modal(`<h2>ייבוא פירוט משכנתא</h2>
+    <p class="mut">מעתיקים את דף המשכנתאות מאתר הבנק (בפאג"י: מסמנים את כל הדף ומעתיקים), או טבלה מהאקסל, ומדביקים כאן, או בוחרים קובץ CSV. הכותרות מזוהות לבד, ואפשר לתקן. קובץ אקסל: שמרו אותו כ-CSV, או העתיקו את הטבלה.</p>
+    <label>שם החוב</label><input id="mg-name" value="משכנתא">
+    <label>הדבקה מהאקסל או מהאתר</label><textarea id="mg-text" rows="5" style="width:100%" placeholder="הדביקו כאן את הטבלה"></textarea>
+    <label class="btn sec" style="margin:6px 0">או בחירת קובץ CSV<input type="file" id="mg-file" accept=".csv,.txt,.tsv" hidden></label>
+    <div id="mg-map"></div><div id="mg-prev"></div>
+    <div class="row" style="margin-top:12px"><button class="b" id="mg-ok" disabled>ייבוא</button><button class="b sec" id="mg-no">ביטול</button></div>`);
+  let built = null;
+  const run = text => {
+    const { headers, rows } = mgFromFieldText(text) || mgParseTable(text); if (!headers.length || !rows.length) { toast('לא זוהתה טבלה'); return; }
+    const map = mgDetect(headers);
+    m.querySelector('#mg-map').innerHTML = '<h3>זיהוי העמודות</h3>' + MG_FIELDS.map(([k, label]) => `<label>${label}</label><select data-mg="${k}"><option value="-1">—</option>${headers.map((h, i) => `<option value="${i}" ${map[k] === i ? 'selected' : ''}>${esc(h)}</option>`).join('')}</select>`).join('');
+    const refresh = () => {
+      m.querySelectorAll('[data-mg]').forEach(s => { map[s.dataset.mg] = +s.value; });
+      built = mgTracks(rows, map, headers);
+      m.querySelector('#mg-prev').innerHTML = built.tracks.length ? `<h3>מה ייובא</h3><div class="scroll"><table><tr><th>מסלול</th><th>סוג</th><th>סכום</th><th>תשלומים</th><th>ריבית</th></tr>${built.tracks.map(t => `<tr><td>${esc(t.name)}</td><td>${{ fixed: 'קבועה', prime: 'פריים', var: 'משתנה' }[t.type]}</td><td class="n">${fmt(t.principal)}</td><td class="n">${esc(t.months)}</td><td class="n">${esc(t.rate)}${t.type === 'prime' ? ' (מרווח)' : '%'}</td></tr>`).join('')}</table></div><p class="mut">תחילת ההחזרים: ${built.start.split('-').reverse().join('/')}. ${built.notes.map(esc).join(' ')}</p>` : `<p class="bad">לא נמצאו מסלולים. בדקו שהעמודות מזוהות נכון. ${built.notes.map(esc).join(' ')}</p>`;
+      m.querySelector('#mg-ok').disabled = !built.tracks.length;
+    };
+    m.querySelectorAll('[data-mg]').forEach(s => s.onchange = refresh); refresh();
+  };
+  m.querySelector('#mg-text').addEventListener('change', e => run(e.target.value));
+  m.querySelector('#mg-file').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; const txt = await f.text(); m.querySelector('#mg-text').value = txt; run(txt); });
+  m.querySelector('#mg-no').onclick = () => m.remove();
+  m.querySelector('#mg-ok').onclick = () => {
+    if (!built || !built.tracks.length) return;
+    const name = m.querySelector('#mg-name').value.trim() || 'משכנתא', old = live('debts').find(x => x.name === name);
+    const nd = { ...(old || { id: uid(), name, kind: 'משכנתא', day: '' }), tracks: built.tracks, tracksUpd: today(), start: built.start };
+    const i = debtInfo(nd); nd.balance = built.tracks.reduce((a, t) => a + +t.principal, 0); nd.monthly = Math.round(i.next || 0); nd.end = i.endYm;
+    put('debts', nd); m.remove(); toast(old ? 'החוב עודכן' : 'החוב נוסף'); render();
+  };
+}
+
+/* ---------- ציור ---------- */
+/* ---------- נעילה בקוד: מסתירה את התקציב ממי שנמצא ליד המסך (הקוד נשמר כגיבוב, לא גלוי) ---------- */
+async function pinHash(pin) {
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('budget-pin:' + pin));
+  return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+const pinOk = () => { try { return !S.settings.pin || sessionStorage.getItem('bud_ok') === S.settings.pin; } catch (e) { return !S.settings.pin; } };
+function lockScreen() {
+  $('#app').innerHTML = `<div class="card" style="max-width:340px;margin:12vh auto;text-align:center"><h2>🔒 התקציב נעול</h2><input id="pin-in" type="password" inputmode="numeric" maxlength="8" placeholder="קוד כניסה" style="text-align:center" autocomplete="off"><p><button class="b" id="pin-go">כניסה</button></p><p class="mut" id="pin-msg"></p></div>`;
+  const go = async () => { const h = await pinHash($('#pin-in').value.trim()); if (h === S.settings.pin) { try { sessionStorage.setItem('bud_ok', h); } catch (e) { /* בלי אחסון */ } render(); } else $('#pin-msg').textContent = 'קוד שגוי'; };
+  $('#pin-go').onclick = go; $('#pin-in').onkeydown = e => { if (e.key === 'Enter') go(); }; $('#pin-in').focus();
+}
+function render() {
+  if (ready && !pinOk()) { lockScreen(); return; }
+  if (!ready) { $('#app').innerHTML = '<div class="bud-body"><p class="mut">טוען…</p></div>'; return; }
+  const ys = years(); if (!curYear || !ys.includes(curYear)) curYear = ys[0];
+  const vis = TABS.filter(t => ME.role !== 'home' || !['biz', 'debts'].includes(t[0]));
+  if (tab !== 'cats' && !vis.find(t => t[0] === tab)) tab = 'home';
+  const keepY = scrollY;
+  $('#app').innerHTML = `<div class="bud-top"><h1>${esc(S.settings.family || 'תקציב המשפחה')}</h1>${window.BUDGET_EXIT ? `<a href="${esc(window.BUDGET_EXIT[0])}">${esc(window.BUDGET_EXIT[1])}</a>` : ''}
+    <select id="yr">${ys.map(y => `<option value="${y}" ${y === curYear ? 'selected' : ''}>${yearLabel(y)}</option>`).join('')}</select>
+    <button id="cal" title="עברי / לועזי">${S.settings.calendar === 'heb' ? 'עברי' : 'לועזי'}</button></div>
+    <div class="bud-body">${V[tab]()}</div>${canEdit() ? '<button class="fab" id="fab" title="הזנה מהירה">+</button>' : ''}
+    <nav class="bud-nav">${vis.map(t => `<button class="${t[0] === tab || (t[0] === 'cls' && tab === 'cats') ? 'on' : ''}" data-tab="${t[0]}"><b>${t[1]}</b>${t[2]}</button>`).join('')}</nav>`;
+  bind();
+  scrollTo(0, keepY);
+}
+function bind() {
+  const R = $('#app');
+  if (tab === 'more' && !SYNC && !healthTried) { healthTried = true; syncLoad().then(() => render()); }
+  if (tab === 'txs') bindTxs();
+  if (tab === 'cls') bindCls();
+  if (tab === 'cats') bindCats();
+  $('#mortgage-import')?.addEventListener('click', mortgageImport);
+  R.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); scrollTo(0, 0); });
+  $('#yr').onchange = e => { curYear = +e.target.value; render(); };
+  $('#cal').onclick = () => { S.settings.calendar = S.settings.calendar === 'heb' ? 'greg' : 'heb'; curYear = null; save(); render(); };
+  $('#fab')?.addEventListener('click', quickAdd);
+  R.querySelectorAll('[data-done]').forEach(b => b.onclick = () => { const p = live('plan').find(x => x.id === b.dataset.done); if (!p) return; put('tx', { id: uid(), type: p.kind === 'incomeVar' || p.kind === 'income' ? 'income' : 'expense', amount: +p.amount, cat: p.name, note: 'בוצע כמתוכנן', date: curMonth === today().slice(0, 7) ? today() : curMonth + '-15', acct: '' }); toast('נרשם: ' + p.name); render(); });
+  R.querySelectorAll('[data-ydone]').forEach(b => b.onclick = () => { const r = live('yearly').find(x => x.id === b.dataset.ydone); if (!r) return; put('tx', { id: uid(), type: r.kind === 'income' ? 'income' : 'expense', amount: +r.amount, cat: r.name, note: 'בוצע כמתוכנן', date: today(), acct: '' }); toast('נרשם: ' + r.name); render(); });
+  R.querySelectorAll('[data-yfill]').forEach(b => b.onclick = () => { const r = live('yearly').find(x => x.id === b.dataset.yfill); if (r) quickAdd({ cat: r.name, type: r.kind === 'income' ? 'income' : 'expense', date: today() }); });
+  R.querySelectorAll('[data-fill]').forEach(b => b.onclick = () => { const p = live('plan').find(x => x.id === b.dataset.fill); if (p) quickAdd({ cat: p.name, type: p.kind === 'incomeVar' || p.kind === 'income' ? 'income' : 'expense', date: curMonth === today().slice(0, 7) ? today() : curMonth + '-15' }); });
+  R.querySelectorAll('[data-add]').forEach(b => b.onclick = () => form(b.dataset.add, null, null, b.dataset.extra ? JSON.parse(b.dataset.extra) : {}));
+  $('#prime-save')?.addEventListener('click', () => { S.settings.primeHist = $('#prime-hist').value; S.settings.primeAuto = $('#prime-auto').checked; S.settings.primeUpd = today(); save(); render(); toast('נשמר'); });
+  R.querySelectorAll('[data-payoff]').forEach(b => b.onclick = () => {
+    const d = S.data.debts.find(x => x.id === b.dataset.payoff); if (!d) return;
+    const m = modal(`<h2>פירעון מוקדם: ${esc(d.name)}</h2><p class="mut">בחודש שתבחר ישולם כל מה שנשאר בבת אחת, וההחזרים אחריו יפסקו.</p><label>חודש הפירעון</label><input id="po-m" type="month" value="${today().slice(0, 7)}"><label>קנס או עמלה (לא חובה)</label><input id="po-f" type="number" step="any"><div class="row" style="margin-top:12px"><button class="b" id="po-ok">שמירה</button><button class="b sec" id="po-no">ביטול</button></div>`);
+    m.querySelector('#po-no').onclick = () => m.remove();
+    m.querySelector('#po-ok').onclick = () => { const ym = m.querySelector('#po-m').value; if (!ym) return; const nd = { ...d, closed: ym, closeFee: +m.querySelector('#po-f').value || 0 }; nd.end = debtInfo(nd).endYm; put('debts', nd); m.remove(); toast('הפירעון המוקדם נשמר'); render(); };
+  });
+  R.querySelectorAll('[data-tracks]').forEach(b => b.onclick = () => tracksModal(S.data.debts.find(x => x.id === b.dataset.tracks)));
+  R.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { const [c, id] = b.dataset.del.split(':'); ask('למחוק?', () => { remove(c, id); render(); }); });
+  $('#ai-go')?.addEventListener('click', () => { const q = $('#ai-q').value.trim(); if (q) askAI(q); });
+  R.querySelectorAll('[data-aiq]').forEach(b => b.onclick = () => { $('#ai-q').value = b.dataset.aiq; askAI(b.dataset.aiq); });
+  $('#nw-snap')?.addEventListener('click', () => { const n = netWorth(), d = today(); put('snaps', { id: 's-' + d, date: d, assets: Math.round(n.assets), liab: Math.round(n.liab), net: Math.round(n.net) }); toast('צילום המצב נשמר'); render(); });
+  $('#ef-m')?.addEventListener('change', e => { S.settings.efMonths = Math.max(1, Math.min(24, +e.target.value || 3)); save(); render(); });
+  R.querySelectorAll('[data-renew]').forEach(b => b.onclick = () => { const p = S.data.policies.find(x => x.id === b.dataset.renew); if (!p) return; const m = modal(`<h2>חידוש: ${esc(p.name)}</h2><p class="mut">פרמיה נוכחית ${fmt(p.premium)}. מה הפרמיה החדשה?</p><input id="pn" type="number" inputmode="decimal" step="any" value="${esc(p.premium)}"><div class="row" style="margin-top:12px"><button class="b" id="pn-ok">חידוש לשנה</button><button class="b sec" id="pn-no">ביטול</button></div>`); m.querySelector('#pn-no').onclick = () => m.remove(); m.querySelector('#pn-ok').onclick = () => { const v = +m.querySelector('#pn').value; if (!(v > 0)) return; const d = new Date((p.renew || today()) + 'T12:00:00'); d.setFullYear(d.getFullYear() + 1); put('policies', { ...p, prev: p.premium, premium: v, renew: d.toISOString().slice(0, 10) }); m.remove(); render(); }; });
+  R.querySelectorAll('[data-deposit]').forEach(b => b.onclick = () => { const g = S.data.goals.find(x => x.id === b.dataset.deposit); if (!g) return; const m = modal(`<h2>הפקדה ליעד: ${esc(g.name)}</h2><input id="gd" type="number" inputmode="decimal" step="any" placeholder="סכום" autofocus><div class="row" style="margin-top:12px"><button class="b" id="gd-ok">שמירה</button><button class="b sec" id="gd-no">ביטול</button></div>`); m.querySelector('#gd-no').onclick = () => m.remove(); m.querySelector('#gd-ok').onclick = () => { const v = +m.querySelector('#gd').value; if (!v) return; put('goals', { ...g, saved: (+g.saved || 0) + v }); m.remove(); render(); }; });
+  R.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { const [c, id] = b.dataset.edit.split(':'); form(c, S.data[c].find(x => x.id === id)); });
+  R.querySelectorAll('[data-sub]').forEach(b => b.onclick = () => { const [k, v] = b.dataset.sub.split(':'); subTab[k] = v; render(); });
+  R.querySelectorAll('[data-biz]').forEach(b => b.onclick = () => { curBiz = b.dataset.biz; render(); });
+  R.querySelectorAll('[data-inv]').forEach(b => b.onclick = () => makeInvoice(b.dataset.inv));
+  R.querySelectorAll('[data-print]').forEach(b => b.onclick = () => printInv(b.dataset.print));
+  $('#mpick')?.addEventListener('change', e => { curMonth = e.target.value; render(); });
+  if ($('#sumit-card')) fetch(API + 'sumit-config', { credentials: 'same-origin' }).then(r => r.json()).then(j => {
+    $('#sumit-card').innerHTML = `<h2>חיבור לסמיט (הפקת חשבוניות)</h2><p>${j.on ? '✅ מחובר' + (j.from_env ? ' (דרך הגדרות השרת)' : '') : '⚪ לא מחובר'}</p>
+    <p class="mut">בחשבון הסמיט שלך (sumit.co.il): הגדרות ← הגדרות API. שם מוצג <b>מספר החברה</b>, ושם יוצרים או מעתיקים את <b>מפתח ה-API</b> (הסודי, לא המפתח הציבורי). מעתיקים אותם לכאן. אם אין לך את האפשרות בתפריט, ייתכן שהיא לא פתוחה במסלול שלך, ואז צריך לפנות לתמיכה של סמיט.</p>
+    <label>מספר חברה</label><input id="sm-co" inputmode="numeric" value="${esc(j.company)}"><label>מפתח API</label><input id="sm-key" type="password" autocomplete="off" placeholder="${j.has_key ? 'שמור (השאר ריק כדי לא לשנות)' : ''}">
+    <label><input type="checkbox" id="sm-draft" ${j.draft !== false ? 'checked' : ''}> מצב טיוטה (המסמכים נוצרים בסמיט כטיוטה ולא נשלחים ללקוח). מומלץ להתחיל כך ולהוריד רק אחרי בדיקה</label>
+    <div class="row" style="margin-top:10px"><button class="b" id="sm-save">שמירה</button>${j.company || j.has_key ? '<button class="b sec" id="sm-off">ניתוק</button>' : ''}</div>`;
+    const send = async body => { const r = await fetch(API + 'sumit-config', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() }, body: JSON.stringify(body) }); const x = await r.json().catch(() => ({})); if (!r.ok) return toast(x.error || 'השמירה נכשלה'); toast('נשמר'); setTimeout(() => location.reload(), 700); };
+    $('#sm-save').onclick = () => send({ company: $('#sm-co').value.trim(), key: $('#sm-key').value.trim(), draft: $('#sm-draft').checked });
+    $('#sm-off')?.addEventListener('click', () => ask('לנתק את החיבור לסמיט?', () => send({ company: '', key: '' })));
+  });
+  if ($('#conn')) fetch(API + 'status').then(r => r.json()).then(j => {
+    const ok = (b, t, f) => `<li>${b ? '✅' : '⚪'} ${b ? t : f}</li>`;
+    $('#conn').innerHTML = `<ul style="list-style:none;padding:0;margin:0;line-height:1.9">
+      ${ok(j.sumit.on, 'סמיט מחובר' + (j.sumit.draft ? ' (מצב טיוטה: המסמכים לא נשלחים ללקוח)' : ' (מסמכים אמיתיים!)') + ' · סוגים: ' + j.sumit.kinds.join(', '), 'סמיט לא מחובר: להגדיר ב-Render את SUMIT_COMPANY_ID ו-SUMIT_API_KEY')}
+      ${ok(j.files.kind === 'drive', 'קבצים וגיבויים נשמרים בדרייב של ' + esc(j.files.account || 'חשבון האתר'), 'חשבון גוגל לא מחובר: הקבצים נשמרים על השרת ויימחקו בעדכון')}
+      ${ok(j.backup.cron_secret, 'גיבוי יומי אפשרי (נדרשת משימה ב-cron-job.org לכתובת /internal/backup/)', 'חסר CRON_SECRET ב-Render, בלעדיו אין גיבוי יומי')}
+      <li>📦 ${j.docs} רשומות בתקציב · 👥 ${j.people} הרשאות אישיות</li></ul>`;
+  }).catch(() => { $('#conn').textContent = 'לא ניתן לטעון את מצב החיבורים'; });
+  $('#s-save')?.addEventListener('click', () => { const s = S.settings; s.family = $('#s-fam').value; s.calendar = $('#s-cal').value; s.tithe = +$('#s-tithe').value || 10; s.alertCall = $('#s-call').checked; s.dateBy = $('#s-dateby').value; s.fillDay = Math.min(28, Math.max(0, +$('#s-fill').value || 0)); const pin = ($('#s-pin').value || '').trim();
+    if ($('#s-pinrm')?.checked) { delete s.pin; try { sessionStorage.removeItem('bud_ok'); } catch (e) { /* בלי אחסון */ } }
+    const finish = () => { curYear = null; save(); render(); toast('נשמר'); };
+    if (!pin) return finish();
+    if (!/^\d{4,8}$/.test(pin)) return toast('הקוד: 4 עד 8 ספרות');
+    pinHash(pin).then(h => { s.pin = h; try { sessionStorage.setItem('bud_ok', h); } catch (e) { /* בלי אחסון */ } finish(); }); });
+  const cl = signup => async () => { S.settings.sync = { url: $('#y-url').value.trim().replace(/\/$/, ''), key: $('#y-key').value.trim(), email: $('#y-mail').value.trim() }; save(); try { await cloudLogin(S.settings.sync.email, $('#y-pass').value, signup); toast(signup ? 'החשבון נוצר (ייתכן שצריך לאשר במייל)' : 'מחובר'); sync(true); } catch (e) { toast('ההתחברות נכשלה: ' + e.message); } };
+  $('#y-in')?.addEventListener('click', cl(false)); $('#y-up')?.addEventListener('click', cl(true));
+  $('#adduser')?.addEventListener('click', () => {
+    const m = modal(`<h2>משתמש חדש</h2><label>שם</label><input id="u-n"><label>סיסמה</label><input id="u-p" type="password"><label>הרשאה</label><select id="u-r">${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${k === 'home' ? 'selected' : ''}>${v}</option>`).join('')}</select><div class="row" style="margin-top:14px"><button class="b" id="ok">הוספה</button></div>`);
+    m.querySelector('#ok').onclick = async () => { const n = m.querySelector('#u-n').value.trim(), p = m.querySelector('#u-p').value; if (!n || !p) return; S.settings.users.push({ name: n, hash: await hash(p), role: m.querySelector('#u-r').value }); save(); m.remove(); render(); };
+  });
+  $('#exp')?.addEventListener('click', () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ settings: { users: [] }, data: S.data })], { type: 'application/json' })); a.download = 'גיבוי-תקציב-' + today() + '.json'; a.click(); });
+  $('#imp')?.addEventListener('change', async e => { try { const r = importAny(JSON.parse(await e.target.files[0].text())); save(); toast(r); render(); } catch (x) { toast('הקובץ לא תקין'); } });
+  if ($('#mz-card')) {
+    const mzCall = async (method, body) => { const r = await fetch(API + 'sync-keys', { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() }, body: body ? JSON.stringify(body) : undefined }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'הפעולה נכשלה'); return j; };
+    const mzShow = async () => {
+      try {
+        const { keys } = await mzCall('GET');
+        $('#mz-list').innerHTML = keys.length ? '<h3>חיבורים פעילים</h3>' + keys.map(k => `<p>${esc(k.name)} · נוצר ${esc(k.created)}${k.last_used ? ' · שימוש אחרון ' + esc(k.last_used.slice(0, 10)) : ' · עוד לא שימש'} <button class="b red" data-mz-del="${k.id}">ביטול</button></p>`).join('') : 'עוד אין חיבורים.';
+        $('#mz-list').querySelectorAll('[data-mz-del]').forEach(b => b.onclick = async () => { if (!confirm('לבטל את החיבור? מזרק תפסיק לשלוח לכאן.')) return; try { await mzCall('DELETE', { id: +b.dataset.mzDel }); toast('החיבור בוטל'); mzShow(); } catch (x) { toast(x.message); } });
+      } catch (x) { $('#mz-list').textContent = x.message; }
+    };
+    mzShow();
+    $('#mz-gen').onclick = async () => {
+      try {
+        const { code } = await mzCall('POST', { generate: true, name: $('#mz-name').value });
+        $('#mz-code').innerHTML = `<p><b>הקוד (מוצג פעם אחת, העתיקו אותו עכשיו):</b></p><textarea id="mz-code-text" readonly rows="3" dir="ltr" style="width:100%">${esc(code)}</textarea><p><button class="b sec" id="mz-copy">העתקה</button> <span class="mut">בתוכנה מזרק: "התקציב שלי" ← הדבקת קוד חיבור ← החלה ← שמור ← פעיל.</span></p>`;
+        $('#mz-copy').onclick = () => { const t = $('#mz-code-text'); t.select(); navigator.clipboard?.writeText(t.value).then(() => toast('הועתק'), () => toast('סמנו והעתיקו ידנית')); };
+        mzShow();
+      } catch (x) { toast(x.message); }
+    };
+    $('#mz-add').onclick = async () => { try { await mzCall('POST', { name: $('#mz-name').value, key: $('#mz-key').value }); $('#mz-key').value = ''; toast('החיבור נוסף'); mzShow(); } catch (x) { toast(x.message); } };
+  }
+  $('#wipe')?.addEventListener('click', () => {
+    if (!window.BUDGET_CAN_WIPE || !canEdit()) return;
+    const phrase = 'מחק את כל נתוני התקציב';
+    const m = modal(`<h2>מחיקה לצמיתות</h2>
+      <p class="bad">הפעולה תמחק את כל נתוני התקציב, כולל ההגדרות, ההכנסות, ההוצאות, החובות והמסמכים, עבור כל משתמשי הפרויקט. אי אפשר לשחזר את הנתונים.</p>
+      <label for="wipe-confirm">כדי לאשר, הקלד בדיוק: <b>${phrase}</b></label>
+      <input id="wipe-confirm" autocomplete="off">
+      <div class="row" style="margin-top:14px"><button class="b red" id="wipe-go" disabled>מחיקה לצמיתות</button><button class="b sec" id="wipe-cancel">ביטול</button></div>`);
+    const input = m.querySelector('#wipe-confirm'), go = m.querySelector('#wipe-go');
+    m.querySelector('#wipe-cancel').onclick = () => m.remove();
+    input.addEventListener('input', () => { go.disabled = input.value.trim() !== phrase; });
+    go.onclick = async () => {
+      if (input.value.trim() !== phrase) return;
+      go.disabled = true; go.textContent = 'מוחק…';
+      let queued = [], wiped = false;
+      try {
+        // ממתינים לבקשות שמירה שכבר נשלחו כדי שלא יכתבו מחדש נתונים אחרי המחיקה.
+        clearTimeout(flushT);
+        while (flushing) await new Promise(resolve => setTimeout(resolve, 40));
+        clearTimeout(flushT);
+        queued = pending.slice();
+        pending = [];
+        const r = await fetch(API + 'wipe', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
+          body: JSON.stringify({ confirm: 'DELETE_ALL_BUDGET_DATA' })
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) throw new Error(j.error || 'השרת לא אישר את המחיקה');
+        wiped = true; queued = [];
+        COLL.forEach(c => { S.data[c] = []; });
+        S.settings = { family: '', calendar: 'heb', tithe: 10 };
+        pending = []; tab = 'home'; curBiz = null; curYear = null;
+        m.remove(); render(); toast('כל נתוני התקציב נמחקו לצמיתות');
+      } catch (e) {
+        if (!wiped && queued.length) {
+          pending.unshift(...queued);
+          clearTimeout(flushT); flushT = setTimeout(flush, 200);
+        }
+        go.disabled = false; go.textContent = 'מחיקה לצמיתות';
+        toast('המחיקה נכשלה: ' + (e.message || 'שגיאת תקשורת'));
+      }
+    };
+  });
+}
+
+
+(async function init() {
+  render();
+  try { await pull(); } catch (e) { ready = true; render(); toast('אין חיבור לשרת'); }
+  setInterval(() => { if (!document.querySelector('.modal') && !pending.length && !flushing && document.visibilityState === 'visible') pull(true).catch(() => { }); }, 60000);
+})();
+})();

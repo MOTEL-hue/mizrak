@@ -1,0 +1,73 @@
+/* התקציב מתעצב לפי העיצוב הכללי של האתר (style.css ו-skins.css): צבעים, גופנים, כפתורים, שדות וטבלאות
+   נלקחים מהמשתנים של האתר, ולכן גם ערכת העיצוב ומצב יום / לילה חלים עליו. כאן רק מה שייחודי לתקציב. */
+#app{--good:var(--success,#146c2e);--bad:var(--danger,#b3261e)}
+#app{padding-bottom:6.5rem}
+
+#app .bud-top{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin:0 0 1rem}
+#app .bud-top h1{flex:1;margin:0;min-width:10rem}
+#app .bud-top select,#app .bud-top button{width:auto;flex:0 0 auto}
+#app .bud-top a{font-size:.92rem}
+
+#app .card{margin:0 0 1rem;overflow-wrap:anywhere}
+#app .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.75rem;margin:0 0 1rem}
+#app .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:.9rem 1rem;box-shadow:var(--shadow)}
+#app .kpi small{color:var(--muted);display:block}
+#app .kpi strong{font-size:1.45rem;font-weight:700}
+#app .good{color:var(--good)}#app .bad{color:var(--bad)}#app .mut{color:var(--muted)}
+
+#app td.n{white-space:nowrap;font-variant-numeric:tabular-nums}
+#app tr.tot td{font-weight:700;background:var(--soft,var(--paper))}
+#app .scroll{overflow-x:auto}
+
+#app button.b.sec,#app .btn.sec{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+#app button.b.red{background:var(--danger)}
+#app button.ic{background:none;color:var(--text);border:0;padding:.15rem .35rem;font-size:1rem;box-shadow:none}
+#app input,#app select,#app textarea{width:100%}
+#app input[type=checkbox],#app input[type=radio]{width:auto}
+#app label{display:block;margin:.5rem 0 .15rem;font-size:.85rem;color:var(--muted);font-weight:500}
+
+#app .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}#app .row>*{flex:0 0 auto}#app .sp{flex:1!important}
+#app .alert{background:var(--gold-soft,#fff4d6);color:var(--text);border-radius:var(--radius);padding:.55rem .85rem;margin:.4rem 0;border-inline-start:5px solid var(--warning,#e0a100)}
+#app .alert.r{background:color-mix(in srgb,var(--danger) 13%,var(--surface));border-color:var(--danger)}
+#app .bar{height:10px;border-radius:6px;background:var(--border);overflow:hidden}
+#app .bar i{display:block;height:100%;background:var(--primary)}
+
+#app .tabs{display:flex;gap:.4rem;flex-wrap:wrap;margin:.5rem 0 1rem}
+#app .tabs button{border:1px solid var(--border);background:var(--surface);color:var(--text);padding:.35rem .9rem;border-radius:999px;font-weight:500}
+#app .tabs button.on{background:var(--btn,var(--primary));border-color:transparent;color:#fff}
+
+#app .bud-nav{position:fixed;bottom:0;inset-inline:0;background:var(--surface);border-top:1px solid var(--border);display:flex;overflow-x:auto;z-index:30;padding-bottom:env(safe-area-inset-bottom,0px);box-shadow:0 -4px 16px rgba(0,0,0,.06)}
+#app .bud-nav button{flex:1;min-width:4.4rem;border:0;border-radius:0;background:none;color:var(--text);padding:.5rem .25rem;font-size:.78rem;font-weight:500;box-shadow:none}
+#app .bud-nav button b{display:block;font-size:1.25rem;font-weight:400}
+#app .bud-nav button.on{color:var(--primary);font-weight:700;background:var(--soft,var(--paper))}
+
+#app .fab{position:fixed;bottom:5rem;inset-inline-end:1rem;width:3.5rem;height:3.5rem;border-radius:50%;font-size:1.9rem;line-height:1;padding:0;background:var(--gold,#E8B931);color:#16233F;border:0;box-shadow:0 4px 14px rgba(0,0,0,.28);z-index:31}
+
+.modal{position:fixed;inset:0;background:rgba(10,16,30,.55);display:flex;align-items:flex-end;justify-content:center;z-index:60}
+.modal>div{background:var(--surface);color:var(--text);width:100%;max-width:520px;border-radius:var(--radius-lg,18px) var(--radius-lg,18px) 0 0;padding:1.1rem;max-height:90vh;overflow:auto}
+@media(min-width:600px){.modal{align-items:center}.modal>div{border-radius:var(--radius-lg,18px)}}
+
+.login{max-width:340px;margin:12vh auto;text-align:center}
+@media print{.site-header,.site-footer,.bud-nav,.fab,.noprint,.read-aloud-btn,#vc-mini-root{display:none!important}}
+
+/* רוחב נוח לטבלאות, ותאריך וסכום בשורה אחת */
+.site-main:has(#app .bud-body){max-width:1500px!important}
+#app table td.n,#app table td:first-child{white-space:nowrap}
+#app table.cls td:first-child{white-space:normal}
+#app table select{max-width:100%}
+
+#app .chip{display:inline-flex;align-items:center;gap:4px;background:var(--surface-2,#eef2f7);border-radius:999px;padding:2px 10px;margin:2px;font-size:.92rem}
+#app .chip .ic{padding:0 2px;font-size:.8rem}
+#app button.chip{border:1px solid var(--border,#cfd8e3);cursor:pointer}
+#app button.chip.on{background:var(--primary,#2563eb);color:#fff}
+
+/* חלון כללי הסיווג: רחב, עם שדות גדולים וקריאים */
+.modal.wide>div{max-width:900px}
+#rl-body input,#rl-body select{font-size:1rem;padding:.65rem .75rem;width:100%;box-sizing:border-box}
+#rl-body button{min-height:44px;white-space:nowrap}
+#rl-body .rl-form{display:grid;grid-template-columns:2fr 2fr auto;gap:8px;align-items:center;margin:8px 0}
+@media (max-width:640px){#rl-body .rl-form{grid-template-columns:1fr}}
+#rl-body table td{padding:.5rem .4rem;vertical-align:middle}
+#rl-body table select{min-width:150px}
+
+#app .uncls{border:2px solid var(--bad);background:color-mix(in srgb,var(--bad) 8%,var(--surface))}
