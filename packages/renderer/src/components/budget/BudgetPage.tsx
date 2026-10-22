@@ -1,11 +1,5 @@
 import { budgetDocsAll, budgetDocsBatch } from '#preload';
-import { useEffect, useMemo } from 'react';
-import { Modal } from 'react-bootstrap';
-
-interface BudgetPageProps {
-  show: boolean;
-  onClose: () => void;
-}
+import { useEffect } from 'react';
 
 // דף התקציב רץ בתוך מסגרת (iframe) ומדבר עם המסמכים המקומיים במקום עם האתר.
 // כל הקריאות לכתובת /__local/ נתפסות כאן. מה שדורש אינטרנט (ריבית, בינה, סמיט) עונה "לא זמין", והדף מציג הודעה.
@@ -18,7 +12,8 @@ async function localApi(path: string, init?: RequestInit): Promise<Response> {
 }
 
 const FRAME = `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
-<link rel="stylesheet" href="budget/base.css"><link rel="stylesheet" href="budget/budget.css"></head><body>
+<link rel="stylesheet" href="budget/base.css"><link rel="stylesheet" href="budget/budget.css">
+<style>#app{padding:4rem 0 1rem}#app .bud-nav{top:0;bottom:auto;border-top:0;border-bottom:1px solid var(--border);box-shadow:none}#app .fab{bottom:1rem}</style></head><body>
 <div id="app"></div>
 <script>
 window.BUDGET_API = '/__local/'; window.BUDGET_CSRF = 'local'; window.BUDGET_SUMIT = []; window.BUDGET_EXIT = '';
@@ -28,21 +23,11 @@ window.fetch = (url, init) => String(url).startsWith('/__local/') ? parent.__bud
 </script>
 <script src="budget/budget.js"></script></body></html>`;
 
-function BudgetPage({ show, onClose }: BudgetPageProps) {
+function BudgetPage() {
   useEffect(() => {
     (window as unknown as Record<string, unknown>).__budgetLocalApi = localApi;
   }, []);
-  const frame = useMemo(() => FRAME, []);
-  return (
-    <Modal show={show} onHide={onClose} fullscreen dir="rtl">
-      <Modal.Header closeButton>
-        <Modal.Title>תקציב</Modal.Title>
-      </Modal.Header>
-      <Modal.Body style={{ padding: 0 }}>
-        {show && <iframe title="תקציב" srcDoc={frame} style={{ width: '100%', height: '100%', border: 0 }} />}
-      </Modal.Body>
-    </Modal>
-  );
+  return <iframe title="תקציב" srcDoc={FRAME} style={{ width: '100%', height: 'calc(100vh - 76px)', border: 0, display: 'block' }} />;
 }
 
 export default BudgetPage;
