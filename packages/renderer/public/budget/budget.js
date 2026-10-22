@@ -925,7 +925,7 @@ V.imp = () => {
   const notBank = S.data.tx.filter(t => !t.del && !t.arch && !isBankTx(t)).length;
   return `<div class="card"><h2>📦 דף הייבוא</h2>
   <p class="mut">התקציב מחושב אוטומטית לפי תנועות הבנק בלבד. תנועות שיובאו מקובץ (ולא הגיעו מהבנק) נשמרות כאן, ואינן נספרות. אפשר להחזיר מהן לספירה, לתקן, למחוק, או להעביר את הסעיפים שלהן לתנועות בנק תואמות.</p>
-  <div class="row"><button class="b sec" data-tab="txs">← חזרה לתנועות</button>${canEdit() ? `<button class="b red" id="imp-reset">🧹 איפוס: לחשב לפי הבנק${notBank ? ` (${notBank} תנועות מהייבוא בספירה)` : ''}</button>` : ''}</div></div>
+  <div class="row"><button class="b sec" data-tab="txs">← חזרה לתנועות</button>${canEdit() ? '<button class="b sec" id="imp-plan">📈 תכנון לפי הייבוא</button>' : ''}${canEdit() ? `<button class="b red" id="imp-reset">🧹 איפוס: לחשב לפי הבנק${notBank ? ` (${notBank} תנועות מהייבוא בספירה)` : ''}</button>` : ''}</div></div>
   ${impMonthsCard()}
   <div class="card"><h3>${all.length} תנועות בדף הייבוא</h3>
   <div class="row"><input id="imp-q" placeholder="חיפוש בתיאור או בסעיף" value="${esc(impf.q)}">${canEdit() && all.length ? '<button class="b sec" id="imp-cats">העבר סעיפים לתנועות בנק תואמות</button> <button class="b sec" id="imp-back">החזר לספירה את הנבחרות</button> <button class="b red" id="imp-del">מחק את הנבחרות</button>' : ''}</div>
@@ -955,11 +955,13 @@ function bindImp() {
   };
   $('#imp-m-back')?.addEventListener('click', () => moveMonths(true));
   $('#imp-m-away')?.addEventListener('click', () => moveMonths(false));
+  $('#imp-plan')?.addEventListener('click', planFromImport);
   $('#imp-reset')?.addEventListener('click', () => {
     const m = modal(`<h2>איפוס: לחשב לפי הבנק</h2>
       <p class="mut">שום דבר לא נמחק. אפשר להחזיר הכול מדף הייבוא.</p>
       <p><label><input type="checkbox" id="rs-move" checked> העבר את הייבוא לדף הייבוא, <b>רק בחודשים שיש בהם נתוני בנק</b> (חודשים בלי נתוני בנק וחודשים שהוגדרו להישאר בדף הראשי לא ייגעו)</label></p>
       <p><label><input type="checkbox" id="rs-cats"> אפס גם את הסיווגים של תנועות הבנק לברירת המחדל: סיווג אוטומטי לפי כללי הסיווג בלבד. סיווגים שנקבעו ביד לתנועות בנק יימחקו.</label></p>
+      <p><label><input type="checkbox" id="rs-plan" checked> אחרי האיפוס, הצע לעדכן את תכנון ההכנסות וההוצאות לפי הייבוא (בבנק יש רק "בפועל", והתכנון נשאר מהייבוא)</label></p>
       <div class="row" style="margin-top:12px"><button class="b red" id="rs-ok">איפוס</button><button class="b sec" id="rs-no">ביטול</button></div>`);
     m.querySelector('#rs-no').onclick = () => m.remove();
     m.querySelector('#rs-ok').onclick = () => {
@@ -970,7 +972,9 @@ function bindImp() {
         S.data.tx.filter(t => !t.del && !t.arch && !isBankTx(t) && bankMonths.has(ymOf(t)) && !keep.has(ymOf(t))).forEach(t => { put('tx', { ...t, arch: true }); moved++; });
       }
       if (cats) S.data.tx.filter(t => !t.del && !t.sp && isBankTx(t)).forEach(t => { const c = ruleCat(t.note); if ((t.cat || '') !== c || (!!t.nb && !nbCats().includes(c))) { put('tx', withCat({ ...t }, c)); recat++; } });
+      const plan = m.querySelector('#rs-plan').checked;
       m.remove(); toast(`הועברו ${moved} תנועות לדף הייבוא${cats ? `, אופסו ${recat} סיווגים` : ''}`); render();
+      if (plan) setTimeout(planFromImport, 300);
     };
   });
   $('#imp-back')?.addEventListener('click', () => { const l = picked(); if (!l.length) return toast('לא נבחר דבר'); l.forEach(t => { const { arch, ...rest } = t; put('tx', rest); }); toast(`הוחזרו ${l.length} תנועות לספירה`); render(); });
@@ -986,6 +990,41 @@ function bindImp() {
     if (!await ask(`להעביר סעיף ל-${todo.length} תנועות בנק (אותו סכום וסוג, עד ${DP_DAYS} ימים הפרש)?`)) return;
     todo.forEach(([i, b]) => put('tx', withCat(b, i.cat))); toast(`עודכנו ${todo.length} תנועות בנק`); render();
   });
+}
+/* ---------- הודעה על חודשים שיש בהם גם נתוני בנק וגם ייבוא שנספר, ותכנון לפי הייבוא ---------- */
+function impPrompt() {
+  if (!canEdit()) return '';
+  const ms = impMonths().filter(r => r.bank && r.counted && !impKeep().includes(r.ym));
+  if (!ms.length) return '';
+  const names = ms.slice(0, 6).map(r => `${r.ym.slice(5)}/${r.ym.slice(0, 4)}`).join(', ') + (ms.length > 6 ? ` ועוד ${ms.length - 6}` : '');
+  return `<div class="card" id="ip-card"><h2>🏦 הגיעו נתוני בנק</h2><p>ב${ms.length === 1 ? 'חודש' : '-' + ms.length + ' חודשים'} <b>${names}</b> יש גם תנועות בנק וגם תנועות מהייבוא, ולכן הן נספרות פעמיים. לאפס ${ms.length === 1 ? 'את החודש' : 'את החודשים'} מהייבוא (הייבוא יעבור לדף הייבוא ולא יימחק)?</p>
+  <div class="row"><button class="b" id="ip-away">כן, העבר לדף הייבוא</button><button class="b sec" id="ip-keep">לא, השאר בדף הראשי</button><button class="b sec" id="ip-pick">בחירה לפי חודש</button></div></div>`;
+}
+function bindImpPrompt() {
+  const ms = () => impMonths().filter(r => r.bank && r.counted && !impKeep().includes(r.ym)).map(r => r.ym);
+  $('#ip-away')?.addEventListener('click', () => { const set = new Set(ms()); let n = 0; S.data.tx.filter(t => !t.del && !t.arch && !isBankTx(t) && set.has(ymOf(t))).forEach(t => { put('tx', { ...t, arch: true }); n++; }); toast(`הועברו ${n} תנועות לדף הייבוא`); render(); });
+  $('#ip-keep')?.addEventListener('click', () => { S.settings.impKeep = [...new Set([...impKeep(), ...ms()])]; save(); toast('נשאר בדף הראשי. אפשר לשנות בדף הייבוא'); render(); });
+  $('#ip-pick')?.addEventListener('click', () => { tab = 'imp'; render(); scrollTo(0, 0); });
+}
+const _home = V.home, _txs = V.txs;
+V.home = () => impPrompt() + _home();
+V.txs = () => impPrompt() + _txs();
+// תכנון הכנסות והוצאות לפי הייבוא: בבנק יש רק "בפועל", ולכן הממוצע החודשי מהייבוא (12 החודשים האחרונים שלו) מוצע כתכנון
+function planFromImport() {
+  const imp = S.data.tx.filter(t => !t.del && !isBankTx(t) && t.cat && !t.tr && !t.sp && !nbCats().includes(t.cat));
+  if (!imp.length) return toast('אין בייבוא תנועות עם סעיף');
+  const last = imp.map(ymOf).sort().pop(), from = addMonth(last, -11), win = imp.filter(t => ymOf(t) >= from && ymOf(t) <= last);
+  const n = new Set(win.map(ymOf)).size || 1, g = {};
+  win.forEach(t => { const k = (t.type === 'income' ? 'i|' : 'e|') + t.cat; g[k] = (g[k] || 0) + +t.amount; });
+  const rows = Object.entries(g).map(([k, tot]) => { const inc = k[0] === 'i', name = k.slice(2), avg = Math.round(tot / n), ex = monthlyPlan().find(p => p.name === name && (p.kind === 'income' || p.kind === 'incomeVar') === inc); return { inc, name, avg, ex }; }).filter(r => r.avg > 0).sort((a, b) => (b.inc - a.inc) || (b.avg - a.avg));
+  const m = modal(`<h2>תכנון לפי הייבוא</h2><p class="mut">ממוצע חודשי לכל סעיף מתוך ${n} חודשי הייבוא האחרונים (עד ${from.slice(5)}/${from.slice(0, 4)}-${last.slice(5)}/${last.slice(0, 4)}). סעיף חדש נוסף כהכנסה או הוצאה משתנה (לא נספר אוטומטית), וסעיף קיים מקבל את הסכום החדש. אפשר לשנות אחר כך בדף התכנון.</p>
+    <div class="scroll"><table><tr><th></th><th>סעיף</th><th>סוג</th><th>ממוצע חודשי</th><th>תכנון קיים</th></tr>${rows.map((r, i) => `<tr><td><input type="checkbox" data-pfi="${i}" ${!r.ex || Math.abs(+r.ex.amount - r.avg) > 1 ? 'checked' : ''}></td><td>${esc(r.name)}</td><td>${r.inc ? 'הכנסה' : 'הוצאה'}</td><td class="n">${fmt(r.avg)}</td><td class="n">${r.ex ? fmt(+r.ex.amount) : '<span class="mut">חדש</span>'}</td></tr>`).join('')}</table></div>
+    <div class="row" style="margin-top:12px"><button class="b" id="pfi-ok">עדכן את התכנון</button><button class="b sec" id="pfi-no">סגירה</button></div>`);
+  m.querySelector('#pfi-no').onclick = () => m.remove();
+  m.querySelector('#pfi-ok').onclick = () => {
+    let c = 0; m.querySelectorAll('[data-pfi]:checked').forEach(ch => { const r = rows[+ch.dataset.pfi]; put('plan', r.ex ? { ...r.ex, amount: r.avg } : { id: uid(), kind: r.inc ? 'incomeVar' : 'variable', name: r.name, amount: r.avg, active: true }); c++; });
+    m.remove(); toast(c ? `עודכנו ${c} סעיפי תכנון` : 'לא נבחר דבר'); render();
+  };
 }
 /* ---------- פיצול תנועה לכמה סעיפים: התנועה המקורית נשארת (מסומנת כפוצלה ולא נספרת) והחלקים נספרים במקומה ---------- */
 function splitTx(t) {
@@ -1429,6 +1468,7 @@ function bind() {
   if (tab === 'cls') bindCls();
   if (tab === 'cats') bindCats();
   if (tab === 'imp') bindImp();
+  bindImpPrompt();
   $('#mortgage-import')?.addEventListener('click', mortgageImport);
   R.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); scrollTo(0, 0); });
   $('#yr').onchange = e => { curYear = +e.target.value; render(); };
