@@ -9,7 +9,7 @@ interface NavButtonProps {
 
 function NavButton({ onClick, text, active }: NavButtonProps) {
   return (
-    <Button variant="light" onClick={onClick} style={{ backgroundColor: 'transparent', borderWidth: 0, fontWeight: active ? 700 : 400, color: active ? '#0f766e' : undefined }}>
+    <Button variant="light" onClick={onClick} style={{ backgroundColor: 'transparent', borderWidth: 0, fontWeight: active ? 700 : 400, color: active ? '#e6cc8a' : undefined }}>
       <Stack direction="horizontal">
         <div
           style={{

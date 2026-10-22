@@ -1,20 +1,20 @@
 /* עיצוב תקציב: ירוק-טורקיז רגוע, כרטיסים מעוגלים, מראה של תוכנת תקציב */
 :root {
-  --mz-primary: #0f766e;
-  --mz-primary-dark: #115e59;
-  --mz-accent: #f59e0b;
-  --mz-bg: #f4faf9;
+  --mz-primary: #15213b;
+  --mz-primary-dark: #101a30;
+  --mz-accent: #c4a052;
+  --mz-bg: #f6f3ec;
   --mz-card: #ffffff;
-  --mz-border: #cfe3e0;
-  --mz-text: #12332f;
-  --bs-primary: #0f766e;
-  --bs-primary-rgb: 15, 118, 110;
-  --bs-link-color: #0f766e;
-  --bs-body-color: #12332f;
+  --mz-border: #e2dac7;
+  --mz-text: #15213b;
+  --bs-primary: #15213b;
+  --bs-primary-rgb: 21, 33, 59;
+  --bs-link-color: #1e3f7a;
+  --bs-body-color: #15213b;
 }
 
 body {
-  background: linear-gradient(180deg, #e6f4f1 0%, var(--mz-bg) 220px, #ffffff 100%);
+  background: linear-gradient(180deg, #efe9da 0%, var(--mz-bg) 220px, #ffffff 100%);
   color: var(--mz-text);
   font-family: 'Segoe UI', 'Arial', 'Heebo', sans-serif;
 }

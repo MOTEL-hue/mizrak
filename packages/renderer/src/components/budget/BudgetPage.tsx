@@ -1,5 +1,5 @@
 import { budgetDocsAll, budgetDocsBatch, budgetRates } from '#preload';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 // דף התקציב רץ בתוך מסגרת (iframe) ומדבר עם המסמכים המקומיים במקום עם האתר.
 // כל הקריאות לכתובת /__local/ נתפסות כאן. מה שדורש אינטרנט (ריבית, בינה, סמיט) עונה "לא זמין", והדף מציג הודעה.
@@ -12,23 +12,19 @@ async function localApi(path: string, init?: RequestInit): Promise<Response> {
   return json({ error: 'לא זמין בתוכנה' }, 404);
 }
 
-const FRAME = `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
-<link rel="stylesheet" href="budget/base.css"><link rel="stylesheet" href="budget/budget.css">
-<style>#app{padding:4rem 0 1rem}#app .bud-nav{top:0;bottom:auto;border-top:0;border-bottom:1px solid var(--border);box-shadow:none}#app .fab{bottom:1rem}</style></head><body>
-<div id="app"></div>
-<script>
-window.BUDGET_API = '/__local/'; window.BUDGET_CSRF = 'local'; window.BUDGET_SUMIT = []; window.BUDGET_EXIT = '';
-window.BUDGET_ROLE = 'admin'; window.BUDGET_PEOPLE = ''; window.BUDGET_CAN_WIPE = false;
-const realFetch = window.fetch.bind(window);
-window.fetch = (url, init) => String(url).startsWith('/__local/') ? parent.__budgetLocalApi(String(url).slice(9), init) : realFetch(url, init);
-</script>
-<script src="budget/budget.js"></script></body></html>`;
-
 function BudgetPage() {
+  const frame = useRef<HTMLIFrameElement>(null);
   useEffect(() => {
-    (window as unknown as Record<string, unknown>).__budgetLocalApi = localApi;
+    const onMessage = async (e: MessageEvent) => {
+      const m = e.data as { type?: string; id?: number; path?: string; body?: string } | null;
+      if (m?.type !== 'budget-api' || e.source !== frame.current?.contentWindow) return;
+      const response = await localApi(String(m.path), { body: m.body }).catch(() => json({ error: 'שגיאה' }, 500));
+      frame.current?.contentWindow?.postMessage({ type: 'budget-api-reply', id: m.id, status: response.status, body: await response.text() }, '*');
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
   }, []);
-  return <iframe title="תקציב" srcDoc={FRAME} style={{ width: '100%', height: 'calc(100vh - 76px)', border: 0, display: 'block' }} />;
+  return <iframe ref={frame} title="תקציב" src="budget/frame.html" style={{ width: '100%', height: 'calc(100vh - 76px)', border: 0, display: 'block' }} />;
 }
 
 export default BudgetPage;

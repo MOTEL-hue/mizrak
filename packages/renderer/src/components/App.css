@@ -20,6 +20,6 @@ body {
 
 /* סימון ברור של האלמנט הפעיל בניווט במקלדת */
 :focus-visible {
-  outline: 3px solid #0f766e;
+  outline: 3px solid #c4a052;
   outline-offset: 2px;
 }
