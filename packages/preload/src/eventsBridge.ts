@@ -149,3 +149,12 @@ export async function electronGoogleOAuth2Connector(): Promise<Credentials> {
 export async function createSpreadsheet(spreadsheetId: string, credentials: Credentials): Promise<string> {
   return electron.ipcRenderer.invoke('createSpreadsheet', spreadsheetId, credentials);
 }
+
+// דף התקציב שבתוך התוכנה: קריאה ושמירה של המסמכים המקומיים
+export async function budgetDocsAll(): Promise<Record<string, unknown>> {
+  return electron.ipcRenderer.invoke('budgetDocsAll');
+}
+
+export async function budgetDocsBatch(ops: unknown[]): Promise<{ ok: boolean; n: number }> {
+  return electron.ipcRenderer.invoke('budgetDocsBatch', ops);
+}

@@ -19,21 +19,34 @@ export async function loadDocs(): Promise<BudgetDoc[]> {
 
 const saveDocs = async (docs: BudgetDoc[]) => fs.writeFile(storePath, await encrypt(JSON.stringify(docs)), 'utf8');
 
-export async function writeDoc(c: string, id: string, data: Record<string, unknown>) {
-  await saveDocs(applyLocal(await loadDocs(), { c, id, data }));
-}
+// קריאה-שינוי-כתיבה אחת בכל פעם, כדי ששמירה מהדף וסנכרון ברקע לא ידרסו זה את זה
+let queue: Promise<unknown> = Promise.resolve();
+const exclusive = <T>(fn: () => Promise<T>): Promise<T> => {
+  const run = queue.then(fn, fn);
+  queue = run.catch(() => undefined);
+  return run;
+};
 
-export async function deleteDoc(c: string, id: string) {
-  await saveDocs(applyLocal(await loadDocs(), { c, id, data: {}, deleted: true }));
-}
+export type DocChange = { c: string; id: string; data?: Record<string, unknown>; del?: boolean };
+
+// כמה שינויים בכתיבה אחת של הקובץ (הקובץ מוצפן כולו, ולכן לא כותבים אותו מחדש לכל שינוי)
+export const writeMany = (changes: DocChange[]) =>
+  exclusive(async () => {
+    let docs = await loadDocs();
+    for (const ch of changes) {
+      docs = applyLocal(docs, ch.del ? { c: ch.c, id: ch.id, data: {}, deleted: true } : { c: ch.c, id: ch.id, data: ch.data ?? {} });
+    }
+    await saveDocs(docs);
+  });
 
 // מקבל את מה שיש באתר, שומר אצלנו את החדש ממנו, ומחזיר מה לשלוח לאתר
-export async function mergeRemote(remote: BudgetDoc[]): Promise<BudgetDoc[]> {
-  const local = await loadDocs();
-  const { toPush, toStore } = planSync(local, remote);
-  if (toStore.length > 0) {
-    const keys = new Set(toStore.map((d) => `${d.c}/${d.id}`));
-    await saveDocs([...local.filter((d) => !keys.has(`${d.c}/${d.id}`)), ...toStore]);
-  }
-  return toPush;
-}
+export const mergeRemote = (remote: BudgetDoc[]): Promise<BudgetDoc[]> =>
+  exclusive(async () => {
+    const local = await loadDocs();
+    const { toPush, toStore } = planSync(local, remote);
+    if (toStore.length > 0) {
+      const keys = new Set(toStore.map((d) => `${d.c}/${d.id}`));
+      await saveDocs([...local.filter((d) => !keys.has(`${d.c}/${d.id}`)), ...toStore]);
+    }
+    return toPush;
+  });

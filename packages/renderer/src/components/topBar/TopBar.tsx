@@ -7,6 +7,7 @@ import logo from '../../assets/logos/logoFishOnly.svg';
 import HelpModal from './HelpModal';
 import NavButton from './NavButton';
 import TransactionsViewer from './TransactionsViewer';
+import BudgetPage from '../budget/BudgetPage';
 import styles from './TopBar.module.css';
 import { useAppInfoStore } from '../../store';
 
@@ -14,6 +15,7 @@ function TopBar() {
   const appInfoStore = useAppInfoStore();
   const [showHelp, setShowHelp] = useState(false);
   const [showData, setShowData] = useState(false);
+  const [showBudget, setShowBudget] = useState(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
 
@@ -50,6 +52,7 @@ function TopBar() {
             </Stack>
           </NavBar.Brand>
           <Stack direction="horizontal" gap={5}>
+            <NavButton onClick={() => setShowBudget(true)} text="התקציב" />
             <NavButton onClick={() => setShowData(true)} text="הנתונים שלי" />
             <NavButton onClick={() => setShowHelp(true)} text="עזרה והסברים" />
             <NavButton onClick={saveDiagnostics} text="שמירת קובץ אבחון" />
@@ -67,6 +70,7 @@ function TopBar() {
         </Alert>
       )}
       <TransactionsViewer show={showData} onClose={() => setShowData(false)} />
+      <BudgetPage show={showBudget} onClose={() => setShowBudget(false)} />
       <HelpModal show={showHelp} onClose={() => setShowHelp(false)} />
     </>
   );
