@@ -75,7 +75,7 @@ const hiddenBanks = () => S.settings.hiddenBanks || [];
 const nbCats = () => S.settings.nbCats || [], miscCats = () => S.settings.miscCats || ['שונות'];
 const EXTRA_G = ['שונות', 'לא קשור (לא נספר)'];
 const withCat = (t, cat) => ({ ...t, cat, ...(nbCats().includes(cat) ? { nb: true } : nbCats().includes(t.cat) && t.nb ? { nb: false } : {}) });
-const isDup = t => !!t.tr || !!t.sp || !!t.nb || dupIds().has(t.id) || (hiddenBanks().length > 0 && hiddenBanks().includes(bankOf(t)));
+const isDup = t => !!t.tr || !!t.sp || !!t.nb || !!t.dupOf || dupIds().has(t.id) || (hiddenBanks().length > 0 && hiddenBanks().includes(bankOf(t)));
 const live = c => c === 'tx' ? S.data.tx.filter(x => !x.del && !isDup(x)) : S.data[c].filter(x => !x.del);
 function dbErr(e) { toast(e && (e.code === 403 || e.code === 401) ? 'אין הרשאה לשמור. התחבר מחדש.' : 'השמירה נכשלה, נסה שוב'); }
 async function flush() {
@@ -730,7 +730,7 @@ V.txs = () => {
   <select id="tx-bank" style="width:auto"><option value="">כל החשבונות ביחד</option>${banks.map(b => `<option value="${esc(b)}" ${b === txf.bank ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>
   <input id="tx-q" placeholder="חיפוש בתיאור או בסעיף" value="${esc(txf.q)}" style="flex:1;min-width:140px"></div>
   ${canEdit() && txf.bank ? `<p><button class="b sec" id="bk-hide">${hiddenBanks().includes(txf.bank) ? 'ביטול הסתרה: ' : 'הסתרת החשבון מהסיכומים: '}${esc(txf.bank)}</button></p>` : ''}
-  ${canEdit() ? '<p><button class="b sec" id="bf-open">⬆ ייבוא מקובץ בנק</button> <button class="b sec" id="tr-open">🔄 העברות בין חשבונות</button> <button class="b sec" id="rc-open">🔁 חיובים חוזרים</button> <button class="b sec" id="rl-open">🏷️ כללי סיווג</button> <button class="b sec" id="cats-open">🗂 ניהול קטגוריות</button></p>' : ''}
+  ${canEdit() ? '<p><button class="b sec" id="bf-open">⬆ ייבוא מקובץ בנק</button> <button class="b sec" id="tr-open">🔄 העברות בין חשבונות</button> <button class="b sec" id="dp-open">👯 כפילויות מייבוא</button> <button class="b sec" id="rc-open">🔁 חיובים חוזרים</button> <button class="b sec" id="rl-open">🏷️ כללי סיווג</button> <button class="b sec" id="cats-open">🗂 ניהול קטגוריות</button></p>' : ''}
   <p><label><input type="checkbox" id="tx-none" ${txf.none ? 'checked' : ''}> רק תנועות בלי סעיף (${uncat})</label><br><span class="mut">בחירת סעיף כאן משנה את התנועה הזו בלבד. כדי לסווג כל התנועות הדומות יוצרים כלל (כפתור כללי סיווג).</span></p>
   <div class="grid"><div class="kpi"><small>הכנסות</small><strong class="good">${fmt(inc)}</strong></div><div class="kpi"><small>הוצאות</small><strong class="bad">${fmt(exp)}</strong></div><div class="kpi"><small>הפרש</small><strong>${fmt(inc - exp)}</strong></div></div>
   ${canEdit() && rows.length ? `<div class="row" style="margin-top:8px"><label><input type="checkbox" id="tx-all"> סימון כל המוצגות</label><select id="tx-bulkcat" style="width:auto"><option value="">סעיף לסימונים…</option>${[...catGroups('expense'), ...catGroups('income').filter(g => !EXTRA_G.includes(g[0])).map(g => [g[0] + ' (הכנסות)', g[1]])].map(([title, names]) => `<optgroup label="${title}">${names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select><button class="b sec" id="tx-bulkset">החלה על המסומנות</button><button class="b red" id="tx-bulkdel">מחיקת המסומנות</button></div>` : ''}
@@ -865,6 +865,46 @@ function transfers() {
   m.querySelector('#tr-ok').onclick = () => {
     let n = 0; m.querySelectorAll('[data-trp]:checked').forEach(c => { const [o, i] = pairs[+c.dataset.trp], id = 'tr-' + uid(); put('tx', { ...o, tr: id }); put('tx', { ...i, tr: id }); n++; });
     toast(n ? `סומנו ${n} העברות` : 'לא נבחר דבר'); draw(); render();
+  };
+  draw();
+}
+/* ---------- כפילויות בין תנועות שיובאו מקובץ לבין תנועות הבנק: אותו אירוע נספר פעמיים ---------- */
+const DP_DAYS = 10;
+function dupPairs() {
+  const live2 = S.data.tx.filter(t => !t.del && !t.tr && !t.sp && !t.dupOf);
+  const isBank = t => String(t.id).startsWith('bk-');
+  const bank = live2.filter(isBank), imported = live2.filter(t => !isBank(t)).sort((a, b) => String(a.date).localeCompare(b.date)), used = new Set(), pairs = [];
+  imported.forEach(i => {
+    const d = Date.parse(i.date); let best = null, gap = Infinity;
+    bank.forEach(b => {
+      if (used.has(b.id) || b.type !== i.type || Math.abs(b.amount - i.amount) > 1) return;
+      const g = Math.abs(Date.parse(b.date) - d) / 864e5; if (g <= DP_DAYS && g < gap) { best = b; gap = g; }
+    });
+    if (best) { used.add(best.id); pairs.push([i, best]); }
+  });
+  return pairs;
+}
+function dupFinder() {
+  const m = modal(`<h2>כפילויות מייבוא</h2><p class="mut">תנועות שיובאו מקובץ (לא מהבנק) שיש להן תנועה זהה מהבנק: אותו סכום וסוג, בהפרש של עד ${DP_DAYS} ימים. התנועה מהייבוא תוסתר מהספירה (אפשר לבטל), והסעיף שלה יעבור לתנועת הבנק אם לה אין סעיף. בדקו את הרשימה לפני האישור.</p>
+    <div id="dp-list"></div><div class="row" style="margin-top:12px"><button class="b" id="dp-ok">הסתר את הנבחרות מהספירה</button><button class="b sec" id="dp-no">סגירה</button></div><div id="dp-done"></div>`);
+  let pairs = [];
+  const draw = () => {
+    pairs = dupPairs();
+    m.querySelector('#dp-list').innerHTML = pairs.length ? `<p><b>${pairs.length}</b> כפילויות חשודות</p><div class="scroll"><table><tr><th></th><th>מהייבוא</th><th>מהבנק</th><th>סכום</th></tr>${pairs.map(([i, b], n) => `<tr><td><input type="checkbox" data-dpp="${n}" checked></td><td>${esc(String(i.date).slice(0, 10))} · ${esc(i.note || '')}${i.cat ? ' · <span class="mut">' + esc(i.cat) + '</span>' : ''}</td><td>${esc(String(b.date).slice(0, 10))} · ${esc(b.note || '')}${b.cat ? ' · <span class="mut">' + esc(b.cat) + '</span>' : ''}</td><td class="n">${fmt(i.amount)}</td></tr>`).join('')}</table></div>` : '<p>לא נמצאו כפילויות.</p>';
+    m.querySelector('#dp-ok').disabled = !pairs.length;
+    const hidden = S.data.tx.filter(t => !t.del && t.dupOf);
+    m.querySelector('#dp-done').innerHTML = hidden.length ? `<h3>מוסתרות (${hidden.length})</h3><p><button class="b sec" id="dp-undo-all">שחזור כל המוסתרות</button></p>` : '';
+    m.querySelector('#dp-undo-all')?.addEventListener('click', () => { hidden.forEach(t => { const { dupOf, ...rest } = t; put('tx', rest); }); toast('השחזור בוצע'); draw(); render(); });
+  };
+  m.querySelector('#dp-no').onclick = () => m.remove();
+  m.querySelector('#dp-ok').onclick = () => {
+    let n = 0; m.querySelectorAll('[data-dpp]:checked').forEach(c => {
+      const [i, b] = pairs[+c.dataset.dpp];
+      put('tx', { ...i, dupOf: b.id });
+      if (i.cat && !b.cat) put('tx', withCat(b, i.cat));
+      n++;
+    });
+    toast(n ? `הוסתרו ${n} כפילויות` : 'לא נבחר דבר'); draw(); render();
   };
   draw();
 }
@@ -1151,6 +1191,7 @@ function bindTxs() {
   $('#bf-open')?.addEventListener('click', bankImport);
   $('#bk-hide')?.addEventListener('click', () => { const h = hiddenBanks(); S.settings.hiddenBanks = h.includes(txf.bank) ? h.filter(x => x !== txf.bank) : [...h, txf.bank]; save(); render(); });
   $('#tr-open')?.addEventListener('click', transfers);
+  $('#dp-open')?.addEventListener('click', dupFinder);
   $('#rc-open')?.addEventListener('click', recurringModal);
   $('#rl-open')?.addEventListener('click', rulesModal);
   $('#cats-open')?.addEventListener('click', () => { tab = 'cats'; render(); scrollTo(0, 0); });
