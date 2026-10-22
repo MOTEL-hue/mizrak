@@ -19,9 +19,9 @@
 #app tr.tot td{font-weight:700;background:var(--soft,var(--paper))}
 #app .scroll{overflow-x:auto}
 
-#app button.b.sec,#app .btn.sec{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+#app button.b.sec,#app .btn.sec{background:var(--surface);color:var(--text)!important;border:1px solid var(--border)}
 #app button.b.red{background:var(--danger)}
-#app button.ic{background:none;color:var(--text);border:0;padding:.15rem .35rem;font-size:1rem;box-shadow:none}
+#app button.ic{background:none;color:var(--text)!important;border:0;padding:.15rem .35rem;font-size:1rem;box-shadow:none}
 #app input,#app select,#app textarea{width:100%}
 #app input[type=checkbox],#app input[type=radio]{width:auto}
 #app label{display:block;margin:.5rem 0 .15rem;font-size:.85rem;color:var(--muted);font-weight:500}
@@ -33,13 +33,13 @@
 #app .bar i{display:block;height:100%;background:var(--primary)}
 
 #app .tabs{display:flex;gap:.4rem;flex-wrap:wrap;margin:.5rem 0 1rem}
-#app .tabs button{border:1px solid var(--border);background:var(--surface);color:var(--text);padding:.35rem .9rem;border-radius:999px;font-weight:500}
-#app .tabs button.on{background:var(--btn,var(--primary));border-color:transparent;color:#fff}
+#app .tabs button{border:1px solid var(--border);background:var(--surface);color:var(--text)!important;padding:.35rem .9rem;border-radius:999px;font-weight:500}
+#app .tabs button.on{background:var(--btn,var(--primary));border-color:transparent;color:#fff!important}
 
 #app .bud-nav{position:fixed;bottom:0;inset-inline:0;background:var(--surface);border-top:1px solid var(--border);display:flex;overflow-x:auto;z-index:30;padding-bottom:env(safe-area-inset-bottom,0px);box-shadow:0 -4px 16px rgba(0,0,0,.06)}
-#app .bud-nav button{flex:1;min-width:4.4rem;border:0;border-radius:0;background:none;color:var(--text);padding:.5rem .25rem;font-size:.78rem;font-weight:500;box-shadow:none}
+#app .bud-nav button{flex:1;min-width:4.4rem;border:0;border-radius:0;background:none;color:var(--text)!important;padding:.5rem .25rem;font-size:.78rem;font-weight:500;box-shadow:none}
 #app .bud-nav button b{display:block;font-size:1.25rem;font-weight:400}
-#app .bud-nav button.on{color:var(--primary);font-weight:700;background:var(--soft,var(--paper))}
+#app .bud-nav button.on{color:var(--primary)!important;font-weight:700;background:var(--soft,var(--paper))}
 
 #app .fab{position:fixed;bottom:5rem;inset-inline-end:1rem;width:3.5rem;height:3.5rem;border-radius:50%;font-size:1.9rem;line-height:1;padding:0;background:var(--gold,#E8B931);color:#16233F;border:0;box-shadow:0 4px 14px rgba(0,0,0,.28);z-index:31}
 
@@ -58,8 +58,8 @@
 
 #app .chip{display:inline-flex;align-items:center;gap:4px;background:var(--surface-2,#eef2f7);border-radius:999px;padding:2px 10px;margin:2px;font-size:.92rem}
 #app .chip .ic{padding:0 2px;font-size:.8rem}
-#app button.chip{border:1px solid var(--border,#cfd8e3);cursor:pointer}
-#app button.chip.on{background:var(--primary,#2563eb);color:#fff}
+#app button.chip{border:1px solid var(--border,#cfd8e3);cursor:pointer;color:var(--text)!important}
+#app button.chip.on{background:var(--primary,#2563eb);color:#fff!important}
 
 /* חלון כללי הסיווג: רחב, עם שדות גדולים וקריאים */
 .modal.wide>div{max-width:900px}
@@ -71,3 +71,5 @@
 #rl-body table select{min-width:150px}
 
 #app .uncls{border:2px solid var(--bad);background:color-mix(in srgb,var(--bad) 8%,var(--surface))}
+
+/* עיצוב האתר צובע כל כפתור בצבע טקסט של כפתור ראשי (!important); כאן כפתורים בהירים מקבלים טקסט כהה כדי שלא ייעלמו */
