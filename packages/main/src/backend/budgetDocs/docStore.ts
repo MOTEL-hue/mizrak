@@ -2,7 +2,8 @@ import { userDataPath } from '@/app-globals';
 import { decrypt, encrypt } from '@/backend/configManager/encryption/crypto';
 import { existsSync, promises as fs } from 'fs';
 import path from 'path';
-import { applyLocal, planSync, type BudgetDoc } from './docSync';
+import { explicitRules, importTx, ruleCat, type ScrapedTx } from './docImport';
+import { applyLocal, docKey, planSync, type BudgetDoc } from './docSync';
 
 // עותק מקומי ומוצפן של מסמכי התקציב. עובד גם בלי אינטרנט.
 const storePath = path.resolve(userDataPath, 'budget.docs.encrypt');
@@ -49,4 +50,32 @@ export const mergeRemote = (remote: BudgetDoc[]): Promise<BudgetDoc[]> =>
       await saveDocs([...local.filter((d) => !keys.has(`${d.c}/${d.id}`)), ...toStore]);
     }
     return toPush;
+  });
+
+// תנועות חדשות מהסריקה נכנסות כמסמכי תנועה. תנועה שכבר קיימת (גם אם נמחקה) לא נדרסת, כדי לשמור תיקונים ידניים;
+// רק תאריך חיוב חסר מושלם. סיווג אוטומטי רק לפי כללים שנקבעו במסך הכללים.
+export const importScraped = (items: ScrapedTx[]) =>
+  exclusive(async () => {
+    let docs = await loadDocs();
+    const byKey = new Map(docs.map((d) => [docKey(d), d]));
+    const rules = explicitRules(docs.filter((d) => d.c === 'rules' && !d.deleted).map((d) => d.data));
+    const nbCats = ((docs.find((d) => d.c === 'settings' && d.id === 'main' && !d.deleted)?.data.nbCats as string[] | undefined) ?? []);
+    let added = 0;
+    for (const item of items) {
+      const tx = importTx(item);
+      if (!tx) continue;
+      const existing = byKey.get(`tx/${tx.id}`);
+      if (existing) {
+        if (!existing.deleted && tx.pd && !existing.data.pd) docs = applyLocal(docs, { c: 'tx', id: tx.id, data: { ...existing.data, pd: tx.pd } });
+        continue;
+      }
+      if (!tx.cat) {
+        tx.cat = ruleCat(rules, tx.note);
+        if (nbCats.includes(tx.cat)) tx.nb = true;
+      }
+      docs = applyLocal(docs, { c: 'tx', id: tx.id, data: tx });
+      added++;
+    }
+    await saveDocs(docs);
+    return added;
   });

@@ -1,5 +1,6 @@
 import { type Config } from '@/backend/commonTypes';
 import { saveScrapedTransactions } from '@/backend/localStore';
+import { importScraped } from '@/backend/budgetDocs/docStore';
 import { createTransactionsInExternalVendors } from '@/backend/export/exportTransactions';
 import { scrapeFinancialAccountsAndFetchTransactions } from '@/backend/import/importTransactions';
 import { clearResume, touchResume } from '@/backend/import/resumeStore';
@@ -99,6 +100,9 @@ async function runScrapeAndExport(config: Config, optionalEventPublisher?: Event
     await saveScrapedTransactions(companyIdToTransactions, config.scraping.accountsToScrape).catch((e) =>
       opLog.error('LOCAL_STORE_FAILED', e as Error),
     );
+
+    // התנועות החדשות נכנסות ישר לתקציב המקומי, בלי תלות באתר
+    await importScraped(Object.values(companyIdToTransactions).flat()).catch((e) => opLog.error('BUDGET_DOCS_IMPORT_FAILED', e as Error));
 
     // Create export logger that shares context with scrape
     const exportLog = createOperationLogger('export');
