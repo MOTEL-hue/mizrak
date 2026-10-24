@@ -267,7 +267,9 @@ function autoTxs(months, real) {
     out.push({ id: 'auto-' + p.id + ym, date: payDate(p, ym), type, cat: p.name, amount: +p.amount, note: 'אוטומטי', auto: true });
   }));
   live('debts').forEach(d => debtInfo(d).pays.forEach(x => {
-    if (!months.includes(x.ym) || real.some(t => ymOf(t) === x.ym && t.cat === debtCat(d))) return;
+    // החזר שכבר נרשם בחודש (גם אם סווג בשם החוב או בסוגו, למשל "משכנתא") לא נספר שוב כסכום אוטומטי
+    const names = [debtCat(d), d.name, d.kind].filter(Boolean);
+    if (!months.includes(x.ym) || real.some(t => ymOf(t) === x.ym && names.includes(t.cat))) return;
     out.push({ id: 'auto-' + d.id + x.ym, date: x.date, type: 'expense', cat: debtCat(d), amount: x.amount, note: 'אוטומטי', auto: true });
   }));
   return out;
@@ -1077,7 +1079,7 @@ function openDD(key) {
     const d = DDB[key](), sorted = (d.txs || []).slice().sort((x, c) => String(effDate(c)).localeCompare(effDate(x)));
     const hasCats = (d.parts || []).some(p => p[3] !== undefined);
     m.firstElementChild.innerHTML = `<h2>${esc(d.title)}</h2><p style="font-size:1.6rem;margin:.2rem 0"><b>${d.total}</b></p>${d.explain ? `<p class="mut">${esc(d.explain)}</p>` : ''}
-    ${(d.parts || []).length ? `<h3>מרכיבי החישוב</h3>${hasCats ? '<p class="mut">לחיצה על סעיף פותחת מתחתיו את התנועות שלו, ואפשר לשייך או לשנות סעיף.</p>' : ''}<div class="scroll"><table><tr><th>רכיב</th><th>סכום</th></tr>${d.parts.map(([l, v, note, cat], i) => `<tr ${cat !== undefined ? `class="dd-row" data-ddp="${i}" style="cursor:pointer${openCat === cat ? ';background:var(--soft,#eee)' : ''}"` : ''}><td>${cat !== undefined ? (openCat === cat ? '▾ ' : '▸ ') : ''}${esc(l)}${note ? ' <span class="mut">· ' + esc(note) + '</span>' : ''}</td><td class="n">${typeof v === 'number' ? fmt(v) : esc(v)}</td></tr>${cat !== undefined && openCat === cat ? `<tr class="dd-sub"><td colspan="2" data-scope="sub">${txTable(sorted.filter(t => (t.cat || '') === cat))}</td></tr>` : ''}`).join('')}</table></div>` : ''}
+    ${(d.parts || []).length ? `<h3>מרכיבי החישוב</h3>${hasCats ? '<p class="mut">לחיצה על סעיף פותחת מתחתיו את התנועות שלו, ואפשר לשייך או לשנות סעיף.</p>' : ''}<div class="scroll"><table><tr><th>רכיב</th><th>סכום</th></tr>${d.parts.map(([l, v, note, cat], i) => `<tr ${cat !== undefined ? `class="dd-row" data-ddp="${i}" style="cursor:pointer${openCat === cat ? ';background:var(--soft,#eee)' : ''}"` : String(l).startsWith('מזה') ? 'style="font-style:italic;opacity:.75"' : ''}><td>${cat !== undefined ? (openCat === cat ? '▾ ' : '▸ ') : ''}${esc(l)}${String(l).startsWith('מזה') ? ' (כלול בסעיפים שלמטה)' : ''}${note ? ' <span class="mut">· ' + esc(note) + '</span>' : ''}</td><td class="n">${typeof v === 'number' ? fmt(v) : esc(v)}</td></tr>${cat !== undefined && openCat === cat ? `<tr class="dd-sub"><td colspan="2" data-scope="sub">${txTable(sorted.filter(t => (t.cat || '') === cat))}</td></tr>` : ''}`).join('')}</table></div>` : ''}
     ${sorted.length && !hasCats ? `<h3>${sorted.length} תנועות</h3><div data-scope="all">${txTable(sorted)}</div>` : ''}
     ${sorted.length && hasCats ? (showAll ? `<h3>כל ${sorted.length} התנועות <button class="b sec" id="dd-hideall">הסתר</button></h3><div data-scope="all">${txTable(sorted)}</div>` : `<p><button class="b sec" id="dd-showall">הצג את כל ${sorted.length} התנועות</button></p>`) : ''}
     <div class="row" style="margin-top:12px"><button class="b sec" id="dd-close">סגירה</button></div>`;
