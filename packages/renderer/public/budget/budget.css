@@ -29,6 +29,7 @@
 #app .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}#app .row>*{flex:0 0 auto}#app .sp{flex:1!important}
 #app .alert{background:var(--gold-soft,#fff4d6);color:var(--text);border-radius:var(--radius);padding:.55rem .85rem;margin:.4rem 0;border-inline-start:5px solid var(--warning,#e0a100)}
 #app .alert.r{background:color-mix(in srgb,var(--danger) 13%,var(--surface));border-color:var(--danger)}
+#app .alert.y{background:color-mix(in srgb,var(--warning,#b26a00) 14%,var(--surface));border-color:var(--warning,#b26a00)}
 #app .bar{height:10px;border-radius:6px;background:var(--border);overflow:hidden}
 #app .bar i{display:block;height:100%;background:var(--primary)}
 

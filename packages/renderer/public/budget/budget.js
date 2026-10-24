@@ -58,7 +58,9 @@ function dupIds() {
 }
 // תנועה שמסומנת כהעברה בין חשבונות (tr) לא נספרת, כמו חיוב בנק שמכוסה בפירוט הכרטיס
 // חודש התקציב של תנועה: החודש שנבחר ידנית (bm), ואחרת חודש התאריך
-const ymOf = t => t.bm || String((S.settings.dateBy === 'value' && (t.vd || t.pd)) || t.date).slice(0, 7);
+// התאריך שלפיו תנועה נספרת: חודש שנבחר ידנית, אחרת תאריך הערך/החיוב (אם הוגדר), אחרת תאריך התנועה. כל הסיכומים (חודשי, שנתי, תחזית) משתמשים בו
+const effDate = t => t.bm ? t.bm + '-15' : String((S.settings.dateBy === 'value' && (t.vd || t.pd)) || t.date);
+const ymOf = t => effDate(t).slice(0, 7);
 // חיובי משכנתא שירדו בפועל מהחשבון לפי חודש, להשוואה להחזר החודשי שחושב
 function mortgagePaid() {
   const by = {};
@@ -190,7 +192,7 @@ const addBtn = (coll, label = 'הוספה', extra = '') => canEdit() ? `<button 
 /* ---------- חישובים ---------- */
 function years() {
   const s = new Set([yearOf(today())]);
-  live('tx').forEach(t => s.add(yearOf(t.date)));
+  live('tx').forEach(t => s.add(yearOf(effDate(t))));
   [...live('orders'), ...live('bizExp'), ...live('yearly')].forEach(x => { const y = bizYear(x); if (y) s.add(y); });
   return [...s].filter(Boolean).sort((a, b) => b - a);
 }
@@ -276,7 +278,7 @@ function yearSummary(y) {
   const yi = live('yearly').filter(x => x.kind === 'income' && (!x.year || yrNum(x.year) === y || x.year == y)).reduce((a, x) => a + (+x.amount || 0), 0);
   const ye = live('yearly').filter(x => x.kind !== 'income' && (!x.year || yrNum(x.year) === y || x.year == y)).reduce((a, x) => a + (+x.amount || 0), 0);
   const biz = bizProfit(y);
-  const heb = S.settings.calendar === 'heb', gy = heb ? y - 3760 : y, all = live('tx'), real = all.filter(t => yearOf(t.date) === y);
+  const heb = S.settings.calendar === 'heb', gy = heb ? y - 3760 : y, all = live('tx'), real = all.filter(t => yearOf(effDate(t)) === y);
   const txs = [...real, ...autoTxs([...Array(heb ? 14 : 12)].map((_, i) => addMonth(`${heb ? gy - 1 : gy}-${heb ? '09' : '01'}`, i)), all).filter(t => yearOf(t.date) === y)];
   const aI = txs.filter(t => t.type === 'income').reduce((a, t) => a + +t.amount, 0), aE = txs.filter(t => t.type !== 'income').reduce((a, t) => a + +t.amount, 0);
   return { planInc: inc + yi, planExp: exp + ye, biz, aI, aE, txs };
@@ -340,11 +342,11 @@ const TABS = [['home', '🏠', 'סקירה'], ['month', '📅', 'חודשי'], [
 const V = {};
 // מה אמור היה להיכנס ולצאת עד היום (חודשים שיש בהם נתונים, וגם החודש הנוכחי) מול מה שנכנס ויצא
 // מה שהוזן בפועל לפריט שנתי באותה שנה (לפי שם הסעיף)
-const yearlyActual = (r, y) => live('tx').filter(t => t.cat === r.name && yearOf(t.date) === y && (t.type === 'income') === (r.kind === 'income')).reduce((a, t) => a + +t.amount, 0);
+const yearlyActual = (r, y) => live('tx').filter(t => t.cat === r.name && yearOf(effDate(t)) === y && (t.type === 'income') === (r.kind === 'income')).reduce((a, t) => a + +t.amount, 0);
 function toDate(y, s) {
   const now = today().slice(0, 7), by = {};
   if (yearOf(today()) === y) by[now] = { i: 0, e: 0 };
-  s.txs.forEach(t => { const m = t.date.slice(0, 7); if (m > now) return; const r = by[m] ||= { i: 0, e: 0 }; if (t.type === 'income') r.i += +t.amount; else r.e += +t.amount; });
+  s.txs.forEach(t => { const m = ymOf(t); if (m > now) return; const r = by[m] ||= { i: 0, e: 0 }; if (t.type === 'income') r.i += +t.amount; else r.e += +t.amount; });
   const pI = planSum('income') + planSum('incomeVar'), pE = planSum('fixed') + planSum('variable') + planSum('consumption') + planSum('charity') + debtMonthly();
   const ms = Object.keys(by).sort(), T = { pi: pI * ms.length, pe: pE * ms.length, i: 0, e: 0 };
   ms.forEach(m => { T.i += by[m].i; T.e += by[m].e; });
@@ -1007,8 +1009,10 @@ function bindImpPrompt() {
   $('#ip-pick')?.addEventListener('click', () => { tab = 'imp'; render(); scrollTo(0, 0); });
 }
 const _home = V.home, _txs = V.txs;
-V.home = () => impPrompt() + _home();
-V.txs = () => impPrompt() + _txs();
+V.home = () => impPrompt() + dupNotice() + _home();
+V.txs = () => impPrompt() + dupNotice() + _txs();
+const _month = V.month;
+V.month = () => dupNotice(curMonth) + _month();
 // תכנון הכנסות והוצאות לפי הייבוא: בבנק יש רק "בפועל", ולכן הממוצע החודשי מהייבוא (12 החודשים האחרונים שלו) מוצע כתכנון
 function planFromImport() {
   const imp = S.data.tx.filter(t => !t.del && !isBankTx(t) && t.cat && !t.tr && !t.sp && !nbCats().includes(t.cat));
@@ -1025,6 +1029,26 @@ function planFromImport() {
     let c = 0; m.querySelectorAll('[data-pfi]:checked').forEach(ch => { const r = rows[+ch.dataset.pfi]; put('plan', r.ex ? { ...r.ex, amount: r.avg } : { id: uid(), kind: r.inc ? 'incomeVar' : 'variable', name: r.name, amount: r.avg, active: true }); c++; });
     m.remove(); toast(c ? `עודכנו ${c} סעיפי תכנון` : 'לא נבחר דבר'); render();
   };
+}
+/* ---------- תנועות שנראות כפולות באותו חודש: אותו חשבון, סכום ותיאור. רק התראה, ההחלטה אצל המשתמש ---------- */
+function suspectDups() {
+  const g = {};
+  live('tx').filter(t => !t.nodup && !t.auto).forEach(t => { const k = [ymOf(t), t.type, (+t.amount).toFixed(2), bankOf(t), normNote(t.note)].join('|'); (g[k] = g[k] || []).push(t); });
+  return Object.values(g).filter(a => a.length > 1).map(a => a.sort((x, y) => String(x.date).localeCompare(y.date)));
+}
+function dupNotice(ym) {
+  if (!canEdit()) return '';
+  const n = suspectDups().filter(a => !ym || ymOf(a[0]) === ym).length;
+  return n ? `<div class="alert y" id="sd-notice">⚠️ ${n} ${n === 1 ? 'תנועה שנראית כפולה' : 'קבוצות של תנועות שנראות כפולות'}${ym ? ' בחודש הזה' : ''} (אותו חשבון, סכום ותיאור באותו חודש). <button class="b sec" data-sd-open>בדיקה</button></div>` : '';
+}
+function dupSameMonth() {
+  const groups = suspectDups().sort((a, b) => ymOf(b[0]).localeCompare(ymOf(a[0])));
+  const m = modal(`<h2>תנועות שנראות כפולות</h2><p class="mut">אותו חשבון, סכום ותיאור באותו חודש. תנועות זהות לגמרי יכולות להיות אמיתיות (למשל שתי קניות זהות באותו יום), ולכן ההחלטה שלך: להסתיר את ההעתק מהספירה (אפשר לבטל בדף הייבוא או בכפתור הכפילויות), או לסמן שזו לא כפילות.</p>
+    ${groups.length ? `<div class="scroll"><table><tr><th>חודש</th><th>תיאור</th><th>סכום</th><th>תאריכים</th><th></th></tr>${groups.slice(0, 80).map((a, i) => `<tr><td>${ymOf(a[0]).slice(5)}/${ymOf(a[0]).slice(0, 4)}</td><td>${esc(a[0].note || '')} <span class="mut">${esc(bankOf(a[0]))}</span></td><td class="n">${fmt(+a[0].amount)} ×${a.length}</td><td>${a.map(t => esc(String(t.date).slice(8, 10) + '/' + String(t.date).slice(5, 7))).join(', ')}</td><td><button class="b sec" data-sd-hide="${i}">הסתר העתקים</button> <button class="b sec" data-sd-ok="${i}">לא כפילות</button></td></tr>`).join('')}</table></div>${groups.length > 80 ? `<p class="mut">מוצגות 80 הראשונות מתוך ${groups.length}.</p>` : ''}` : '<p>לא נמצאו.</p>'}
+    <div class="row" style="margin-top:12px"><button class="b sec" id="sd-close">סגירה</button></div>`);
+  m.querySelector('#sd-close').onclick = () => { m.remove(); render(); };
+  m.querySelectorAll('[data-sd-hide]').forEach(b => b.onclick = () => { const a = groups[+b.dataset.sdHide]; a.slice(1).forEach(t => put('tx', { ...t, dupOf: a[0].id })); toast(`הוסתרו ${a.length - 1} העתקים`); b.closest('tr').remove(); });
+  m.querySelectorAll('[data-sd-ok]').forEach(b => b.onclick = () => { groups[+b.dataset.sdOk].forEach(t => put('tx', { ...t, nodup: true })); toast('סומן שזו לא כפילות'); b.closest('tr').remove(); });
 }
 /* ---------- פיצול תנועה לכמה סעיפים: התנועה המקורית נשארת (מסומנת כפוצלה ולא נספרת) והחלקים נספרים במקומה ---------- */
 function splitTx(t) {
@@ -1469,6 +1493,7 @@ function bind() {
   if (tab === 'cats') bindCats();
   if (tab === 'imp') bindImp();
   bindImpPrompt();
+  R.querySelectorAll('[data-sd-open]').forEach(b => b.onclick = dupSameMonth);
   $('#mortgage-import')?.addEventListener('click', mortgageImport);
   R.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); scrollTo(0, 0); });
   $('#yr').onchange = e => { curYear = +e.target.value; render(); };
