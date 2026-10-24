@@ -11,7 +11,7 @@ const PAGI_LOGIN_URL =
   'https://online.pagi.co.il/MatafLoginService/MatafLoginServlet?bankId=PAGIPORTAL&site=Private&KODSAFA=HE';
 const LOGGED_IN = /FibiMenu\/Online|Resources\/PortalNG\/shell|accountSummary/;
 const SLOW_PAGE_MS = 150_000; // האתר נטען דקה עד שתיים אחרי הכניסה
-const PORTAL_URL = 'https://online.pagi.co.il/appsng/Resources/PortalNG/shell/#/accountSummary';
+export const PORTAL_URL = 'https://online.pagi.co.il/appsng/Resources/PortalNG/shell/#/accountSummary';
 const MORTGAGE_HASH = '#/Online/OnLoansMortgageMenu/OnMortgages/mortgageList';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -85,7 +85,7 @@ async function frameWithText(page: Page, re: RegExp, timeoutMs: number): Promise
   return null;
 }
 
-async function clickByText(page: Page | Frame, pattern: string) {
+export async function clickByText(page: Page | Frame, pattern: string) {
   if ('frames' in page) {
     for (const frame of page.frames()) {
       if (await clickByText(frame, pattern)) return true;
