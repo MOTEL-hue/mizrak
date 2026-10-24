@@ -74,3 +74,4 @@
 #app .uncls{border:2px solid var(--bad);background:color-mix(in srgb,var(--bad) 8%,var(--surface))}
 
 /* עיצוב האתר צובע כל כפתור בצבע טקסט של כפתור ראשי (!important); כאן כפתורים בהירים מקבלים טקסט כהה כדי שלא ייעלמו */
+#app .dd{cursor:pointer;color:inherit;text-decoration:underline dotted;text-underline-offset:4px;border-radius:4px;padding:0 2px}#app .dd:hover,#app .dd:focus-visible{background:var(--soft,#eee)}
