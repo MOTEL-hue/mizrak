@@ -16,7 +16,7 @@ interface UpdateInfo {
   version: string;
 }
 
-function CheckForUpdates() {
+function CheckForUpdates({ autoCheck }: { autoCheck?: boolean }) {
   const [updateState, setUpdateState] = useState(UPDATE_STATES.INIT);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo>();
   const [percent, setPercent] = useState(0);
@@ -24,6 +24,11 @@ function CheckForUpdates() {
   useEffect(() => {
     // רק התקדמות קדימה, ובין 0 ל-100
     onUpdateProgress((value) => setPercent((prev) => Math.max(prev, Math.min(100, Math.max(0, value)))));
+  }, []);
+
+  useEffect(() => {
+    if (autoCheck) void checkForUpdates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const checkForUpdates = async () => {

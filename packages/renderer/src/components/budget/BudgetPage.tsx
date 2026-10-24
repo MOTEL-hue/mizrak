@@ -1,5 +1,7 @@
 import { budgetDocsAll, budgetDocsBatch, budgetRates } from '#preload';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { Modal } from 'react-bootstrap';
+import CheckForUpdates from '../CheckForUpdates';
 import { type ConfigStore, useConfigStore } from '../../store/ConfigStore';
 import { getSyncInfo, startSync, watchSyncResults } from '../sync/syncState';
 
@@ -27,6 +29,7 @@ function BudgetPage({ sync }: { sync: ReactNode }) {
   const [syncOpen, setSyncOpen] = useState(false);
   const [navHeight, setNavHeight] = useState(58);
   const [ready, setReady] = useState(false);
+  const [updateOpen, setUpdateOpen] = useState(false);
 
   useEffect(() => {
     const onMessage = async (e: MessageEvent) => {
@@ -37,6 +40,7 @@ function BudgetPage({ sync }: { sync: ReactNode }) {
         console.info(`BUDGET_FRAME ${(m as { stage?: string }).stage}: ${(m as { detail?: string }).detail}`);
         return;
       }
+      if (m.type === 'budget-update') setUpdateOpen(true);
       if (m.type === 'budget-tab') setSyncOpen(m.tab === 'sync');
       if (m.type === 'budget-nav' && m.height) {
         setNavHeight(m.height);
@@ -71,6 +75,12 @@ function BudgetPage({ sync }: { sync: ReactNode }) {
   return (
     <div style={{ position: 'fixed', inset: 0 }}>
       <iframe ref={frame} title="תקציב" src="budget/frame.html" style={{ width: '100%', height: '100%', border: 0, display: 'block' }} />
+      <Modal show={updateOpen} onHide={() => setUpdateOpen(false)} centered dir="rtl">
+        <Modal.Header closeButton>
+          <Modal.Title>עדכון התוכנה</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>{updateOpen && <CheckForUpdates autoCheck />}</Modal.Body>
+      </Modal>
       {failed && !ready && (
         <div style={{ position: 'absolute', top: 40, left: 20, right: 20, padding: 16, background: '#fff', border: '2px solid #b3261e', borderRadius: 12, textAlign: 'right', direction: 'rtl' }}>
           <b>דף התקציב לא עלה.</b> אפשר לסגור ולפתוח את התוכנה מחדש. אם זה חוזר, שמור קובץ אבחון (בדף הסנכרון) ושלח אותו.

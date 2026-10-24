@@ -48,6 +48,13 @@ window.BUDGET_ROLE = 'admin'; window.BUDGET_PEOPLE = ''; window.BUDGET_CAN_WIPE 
       tab.innerHTML = '<b>🔄</b>סנכרון';
       nav.appendChild(tab);
     }
+    if (!document.getElementById('update-tab')) {
+      const up = document.createElement('a');
+      up.id = 'update-tab';
+      up.setAttribute('role', 'button');
+      up.innerHTML = '<b>⬆️</b>עדכון';
+      nav.appendChild(up);
+    }
     const note = document.querySelector('#sync-card p.mut');
     if (note && !note.dataset.local) {
       note.dataset.local = '1';
@@ -60,6 +67,7 @@ window.BUDGET_ROLE = 'admin'; window.BUDGET_PEOPLE = ''; window.BUDGET_CAN_WIPE 
   document.addEventListener('click', (e) => {
     const t = e.target.closest && e.target.closest('.bud-nav > *');
     if (!t) return;
+    if (t.id === 'update-tab') { post({ type: 'budget-update' }); return; }
     post({ type: 'budget-tab', tab: t.id === 'sync-tab' ? 'sync' : 'budget' });
   }, true);
   window.addEventListener('message', (e) => {

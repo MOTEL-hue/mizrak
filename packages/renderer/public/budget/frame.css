@@ -7,7 +7,7 @@ body{margin:0;min-height:100vh}
 #app .bud-nav button.on{color:var(--gold)!important;background:var(--hdr-2)}
 #app .fab{bottom:1.2rem}
 
-#app .bud-nav #sync-tab{flex:1;min-width:4.4rem;display:block;text-align:center;cursor:pointer;color:var(--hdr-text);padding:.5rem .25rem;font-size:.78rem;font-weight:500;user-select:none}
-#app .bud-nav #sync-tab b{display:block;font-size:1.25rem;font-weight:400}
-body.sync-on #app .bud-nav #sync-tab{color:var(--gold);font-weight:700;background:var(--hdr-2)}
+#app .bud-nav #sync-tab,#app .bud-nav #update-tab{flex:1;min-width:4.4rem;display:block;text-align:center;cursor:pointer;color:var(--hdr-text);padding:.5rem .25rem;font-size:.78rem;font-weight:500;user-select:none}
+#app .bud-nav #sync-tab b,#app .bud-nav #update-tab b{display:block;font-size:1.25rem;font-weight:400}
+body.sync-on #app .bud-nav #sync-tab,#app .bud-nav #update-tab{color:var(--gold);font-weight:700;background:var(--hdr-2)}
 body.sync-on #app .bud-nav button.on{color:var(--hdr-text)!important;font-weight:500;background:none}
