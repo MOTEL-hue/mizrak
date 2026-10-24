@@ -17,6 +17,18 @@ export type TxDoc = Record<string, unknown> & { id: string; cat: string; note: s
 const ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 const cut = (v: unknown, n: number) => String(v ?? '').slice(0, n);
 
+// הסורקים מחזירים תאריך כחצות לפי שעון ישראל, כשהוא כתוב ב-UTC (למשל 2026-09-30T21:00:00.000Z הוא 1 באוקטובר).
+// חיתוך 10 התווים הראשונים העביר תנועות של ה-1 בחודש לחודש הקודם, ולכן התאריך נקבע לפי שעון ישראל.
+const ISRAEL_DATE = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' });
+export function localDate(value: unknown): string {
+  const text = String(value ?? '');
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(text)) return text.slice(0, 10);
+  const time = Date.parse(text);
+  return Number.isNaN(time) ? text.slice(0, 10) : ISRAEL_DATE.format(new Date(time));
+}
+// התאריך כפי ששמרו הגרסאות הקודמות (10 התווים הראשונים), כדי לזהות תנועות שנשמרו עם תאריך שגוי ולתקן אותן
+export const legacyDate = (value: unknown) => String(value ?? '').slice(0, 10);
+
 // תיאור בלי מספרים וסכומים, כדי שחיובים חוזרים יתקבצו יחד (אותה פונקציה כמו בדף התקציב)
 export const normNote = (note: unknown) =>
   String(note ?? '')
@@ -39,11 +51,11 @@ export function importTx(item: ScrapedTx): TxDoc | null {
     amount: Math.abs(amount),
     cat: cut(item.category, 60),
     note,
-    date: cut(item.date, 10),
+    date: localDate(item.date),
     acct: '',
     co: company.slice(0, 30),
     ac: account,
-    pd: cut(item.processedDate, 10),
+    pd: localDate(item.processedDate),
   };
 }
 

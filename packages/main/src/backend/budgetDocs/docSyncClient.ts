@@ -2,7 +2,7 @@ import { userDataPath } from '@/app-globals';
 import { existsSync, promises as fs } from 'fs';
 import path from 'path';
 import { type BudgetDoc } from './docSync';
-import { loadDocs, mergeRemote } from './docStore';
+import { loadDocs, mergeRemote, repairBankDates } from './docStore';
 
 // הסנכרון הדו-כיווני של מסמכי התקציב עם האתר. נקרא מהגשר ברקע; כישלון (למשל בלי אינטרנט) לא מזיק,
 // כי המסמכים נשארים מקומית והסנכרון הבא ישלים.
@@ -14,6 +14,7 @@ const readCursor = async () => (existsSync(cursorPath) ? (await fs.readFile(curs
 export async function syncDocs(base: string, token: string): Promise<{ pulled: number; pushed: number }> {
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
   const url = `${base}/budget/api/docs-sync`;
+  await repairBankDates().catch(() => 0);
   let pulled = 0;
   let pushed = 0;
   let since = await readCursor();

@@ -2,7 +2,7 @@ import { userDataPath } from '@/app-globals';
 import { decrypt, encrypt } from '@/backend/configManager/encryption/crypto';
 import { existsSync, promises as fs } from 'fs';
 import path from 'path';
-import { explicitRules, importTx, ruleCat, type ScrapedTx } from './docImport';
+import { explicitRules, importTx, legacyDate, localDate, ruleCat, type ScrapedTx } from './docImport';
 import { applyLocal, docKey, planSync, type BudgetDoc } from './docSync';
 
 // עותק מקומי ומוצפן של מסמכי התקציב. עובד גם בלי אינטרנט.
@@ -66,7 +66,13 @@ export const importScraped = (items: ScrapedTx[]) =>
       if (!tx) continue;
       const existing = byKey.get(`tx/${tx.id}`);
       if (existing) {
-        if (!existing.deleted && tx.pd && !existing.data.pd) docs = applyLocal(docs, { c: 'tx', id: tx.id, data: { ...existing.data, pd: tx.pd } });
+        if (existing.deleted) continue;
+        // תנועה שנשמרה בגרסה קודמת עם התאריך הקצוץ (יום אחד אחורה): מתקנים רק אם התאריך לא שונה ידנית
+        const fix: Record<string, unknown> = {};
+        if (existing.data.date === legacyDate(item.date) && existing.data.date !== tx.date) fix.date = tx.date;
+        if (existing.data.pd === legacyDate(item.processedDate) && existing.data.pd !== tx.pd) fix.pd = tx.pd;
+        if (tx.pd && !existing.data.pd) fix.pd = tx.pd;
+        if (Object.keys(fix).length) docs = applyLocal(docs, { c: 'tx', id: tx.id, data: { ...existing.data, ...fix } });
         continue;
       }
       if (!tx.cat) {
@@ -78,4 +84,24 @@ export const importScraped = (items: ScrapedTx[]) =>
     }
     await saveDocs(docs);
     return added;
+  });
+
+// תיקון תנועות בנק ישנות שנשמרו עם תאריך קצוץ (יום אחד אחורה): אם המזהה מכיל את התאריך המלא, מחשבים ממנו את התאריך הנכון.
+// תנועות שהמזהה שלהן מקוצר מתוקנות בסריקה הבאה (ראו importScraped), בתנאי שהן בטווח הימים של הסריקה.
+const ID_ISO = /^bk-(\d{4}-\d{2}-\d{2}T[\d:.]+Z)_/;
+export const repairBankDates = () =>
+  exclusive(async () => {
+    let docs = await loadDocs();
+    let fixed = 0;
+    for (const d of docs.filter((x) => x.c === 'tx' && !x.deleted && x.id.startsWith('bk-20'))) {
+      const iso = ID_ISO.exec(d.id)?.[1];
+      if (!iso) continue;
+      const fix: Record<string, unknown> = {};
+      if (d.data.date === legacyDate(iso) && d.data.date !== localDate(iso)) fix.date = localDate(iso);
+      if (!Object.keys(fix).length) continue;
+      docs = applyLocal(docs, { c: 'tx', id: d.id, data: { ...d.data, ...fix } });
+      fixed++;
+    }
+    if (fixed) await saveDocs(docs);
+    return fixed;
   });
