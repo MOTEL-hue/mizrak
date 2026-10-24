@@ -1070,29 +1070,31 @@ const txPart = (txs, extra = []) => ({ txs, parts: [...extra, ...(txs.some(t => 
 const catOptionsHtml = () => `<option value="">בחירת סעיף…</option><option value="__none">ללא סעיף</option>${[...catGroups('expense').map(([t, n]) => ['הוצאות · ' + t, n]), ...catGroups('income').map(([t, n]) => ['הכנסות · ' + t, n])].map(([t, names]) => `<optgroup label="${esc(t)}">${names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}`;
 function openDD(key) {
   if (!DDB[key]) return;
-  let filter = null, picked = new Set();
+  let openCat, showAll = false, picked = new Set();
   const m = modal('');
+  const txTable = (list, cap = 200) => `${canEdit() ? `<div class="row"><select class="dd-cat">${catOptionsHtml()}</select><button class="b dd-assign">שייך את הנבחרות</button></div>` : ''}<div class="scroll"><table><tr>${canEdit() ? '<th><input type="checkbox" class="dd-pall"></th>' : ''}<th>תאריך</th><th>מקור</th><th>תיאור</th><th>סעיף</th><th>סכום</th></tr>${list.slice(0, cap).map(t => `<tr>${canEdit() ? `<td>${t.auto ? '' : `<input type="checkbox" data-ddt="${esc(t.id)}" ${picked.has(t.id) ? 'checked' : ''}>`}</td>` : ''}<td>${esc(String(effDate(t)).slice(0, 10).split('-').reverse().join('/'))}</td><td class="mut">${esc(srcOf(t))}${bankOf(t) ? ' · ' + esc(bankOf(t)) : ''}</td><td>${esc(t.note || '')}</td><td>${esc(t.cat || '')}</td><td class="n ${t.type === 'income' ? 'good' : 'bad'}">${t.type === 'income' ? '+' : '−'}${fmt(+t.amount)}</td></tr>`).join('')}</table></div>${list.length > cap ? `<p class="mut">מוצגות ${cap} הראשונות מתוך ${list.length}.</p>` : ''}`;
   const draw = () => {
-    const d = DDB[key](), cap = 200;
-    let txs = (d.txs || []).slice().sort((a, c) => String(effDate(c)).localeCompare(effDate(a)));
-    const all = txs.length; if (filter !== null) txs = txs.filter(t => (t.cat || '') === filter);
+    const d = DDB[key](), sorted = (d.txs || []).slice().sort((x, c) => String(effDate(c)).localeCompare(effDate(x)));
+    const hasCats = (d.parts || []).some(p => p[3] !== undefined);
     m.firstElementChild.innerHTML = `<h2>${esc(d.title)}</h2><p style="font-size:1.6rem;margin:.2rem 0"><b>${d.total}</b></p>${d.explain ? `<p class="mut">${esc(d.explain)}</p>` : ''}
-    ${(d.parts || []).length ? `<h3>מרכיבי החישוב</h3>${all ? '<p class="mut">לחיצה על סעיף מציגה את התנועות שלו, ואפשר לשייך או לשנות סעיף.</p>' : ''}<div class="scroll"><table><tr><th>רכיב</th><th>סכום</th></tr>${d.parts.map(([l, v, note, cat], i) => `<tr ${cat !== undefined ? `class="dd-row" data-ddp="${i}" style="cursor:pointer"` : ''}${cat !== undefined && filter === cat ? ' style="background:var(--soft,#eee)"' : ''}><td>${esc(l)}${note ? ' <span class="mut">· ' + esc(note) + '</span>' : ''}</td><td class="n">${typeof v === 'number' ? fmt(v) : esc(v)}</td></tr>`).join('')}</table></div>` : ''}
-    ${all ? `<h3>${txs.length} תנועות${filter !== null ? ` · ${esc(filter || 'ללא סעיף')} <button class="b sec" id="dd-all">הצג הכל</button>` : ''}</h3>
-    ${canEdit() ? `<div class="row"><select id="dd-cat">${catOptionsHtml()}</select><button class="b" id="dd-assign">שייך את הנבחרות</button></div>` : ''}
-    <div class="scroll"><table><tr>${canEdit() ? '<th><input type="checkbox" id="dd-pall"></th>' : ''}<th>תאריך</th><th>מקור</th><th>תיאור</th><th>סעיף</th><th>סכום</th></tr>${txs.slice(0, cap).map(t => `<tr>${canEdit() ? `<td>${t.auto ? '' : `<input type="checkbox" data-ddt="${esc(t.id)}" ${picked.has(t.id) ? 'checked' : ''}>`}</td>` : ''}<td>${esc(String(effDate(t)).slice(0, 10).split('-').reverse().join('/'))}</td><td class="mut">${esc(srcOf(t))}${bankOf(t) ? ' · ' + esc(bankOf(t)) : ''}</td><td>${esc(t.note || '')}</td><td>${esc(t.cat || '')}</td><td class="n ${t.type === 'income' ? 'good' : 'bad'}">${t.type === 'income' ? '+' : '−'}${fmt(+t.amount)}</td></tr>`).join('')}</table></div>${txs.length > cap ? `<p class="mut">מוצגות ${cap} הראשונות מתוך ${txs.length}.</p>` : ''}` : ''}
+    ${(d.parts || []).length ? `<h3>מרכיבי החישוב</h3>${hasCats ? '<p class="mut">לחיצה על סעיף פותחת מתחתיו את התנועות שלו, ואפשר לשייך או לשנות סעיף.</p>' : ''}<div class="scroll"><table><tr><th>רכיב</th><th>סכום</th></tr>${d.parts.map(([l, v, note, cat], i) => `<tr ${cat !== undefined ? `class="dd-row" data-ddp="${i}" style="cursor:pointer${openCat === cat ? ';background:var(--soft,#eee)' : ''}"` : ''}><td>${cat !== undefined ? (openCat === cat ? '▾ ' : '▸ ') : ''}${esc(l)}${note ? ' <span class="mut">· ' + esc(note) + '</span>' : ''}</td><td class="n">${typeof v === 'number' ? fmt(v) : esc(v)}</td></tr>${cat !== undefined && openCat === cat ? `<tr class="dd-sub"><td colspan="2" data-scope="sub">${txTable(sorted.filter(t => (t.cat || '') === cat))}</td></tr>` : ''}`).join('')}</table></div>` : ''}
+    ${sorted.length && !hasCats ? `<h3>${sorted.length} תנועות</h3><div data-scope="all">${txTable(sorted)}</div>` : ''}
+    ${sorted.length && hasCats ? (showAll ? `<h3>כל ${sorted.length} התנועות <button class="b sec" id="dd-hideall">הסתר</button></h3><div data-scope="all">${txTable(sorted)}</div>` : `<p><button class="b sec" id="dd-showall">הצג את כל ${sorted.length} התנועות</button></p>`) : ''}
     <div class="row" style="margin-top:12px"><button class="b sec" id="dd-close">סגירה</button></div>`;
     m.querySelector('#dd-close').onclick = () => m.remove();
-    m.querySelectorAll('[data-ddp]').forEach(r => r.onclick = () => { const c = d.parts[+r.dataset.ddp][3]; filter = filter === c ? null : c; picked = new Set(); draw(); });
-    m.querySelector('#dd-all')?.addEventListener('click', () => { filter = null; draw(); });
-    m.querySelector('#dd-pall')?.addEventListener('change', e => m.querySelectorAll('[data-ddt]').forEach(c => { c.checked = e.target.checked; }));
-    m.querySelectorAll('[data-ddt]').forEach(c => c.onchange = () => { if (c.checked) picked.add(c.dataset.ddt); else picked.delete(c.dataset.ddt); });
-    m.querySelector('#dd-assign')?.addEventListener('click', () => {
-      const v = m.querySelector('#dd-cat').value, ids = [...m.querySelectorAll('[data-ddt]:checked')].map(c => c.dataset.ddt);
-      if (!v) return toast('בחרו סעיף');
-      if (!ids.length) return toast('לא נבחרו תנועות');
-      const cat = v === '__none' ? '' : v; ids.forEach(id => { const t = S.data.tx.find(x => x.id === id); if (t) put('tx', withCat(t, cat)); });
-      picked = new Set(); toast(`שויכו ${ids.length} תנועות`); render(); draw();
+    m.querySelector('#dd-showall')?.addEventListener('click', () => { showAll = true; draw(); });
+    m.querySelector('#dd-hideall')?.addEventListener('click', () => { showAll = false; draw(); });
+    m.querySelectorAll('[data-ddp]').forEach(r => r.onclick = () => { const c = d.parts[+r.dataset.ddp][3]; openCat = openCat === c ? undefined : c; picked = new Set(); draw(); });
+    m.querySelectorAll('[data-scope]').forEach(box => {
+      box.querySelector('.dd-pall')?.addEventListener('change', e => box.querySelectorAll('[data-ddt]').forEach(c => { c.checked = e.target.checked; }));
+      box.querySelectorAll('[data-ddt]').forEach(c => c.onchange = () => { if (c.checked) picked.add(c.dataset.ddt); else picked.delete(c.dataset.ddt); });
+      box.querySelector('.dd-assign')?.addEventListener('click', () => {
+        const v = box.querySelector('.dd-cat').value, ids = [...box.querySelectorAll('[data-ddt]:checked')].map(c => c.dataset.ddt);
+        if (!v) return toast('בחרו סעיף');
+        if (!ids.length) return toast('לא נבחרו תנועות');
+        const cat = v === '__none' ? '' : v; ids.forEach(id => { const t = S.data.tx.find(x => x.id === id); if (t) put('tx', withCat(t, cat)); });
+        picked = new Set(); toast(`שויכו ${ids.length} תנועות`); render(); draw();
+      });
     });
   };
   draw();
