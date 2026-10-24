@@ -736,7 +736,7 @@ V.txs = () => {
   <select id="tx-bank" style="width:auto"><option value="">כל החשבונות ביחד</option>${banks.map(b => `<option value="${esc(b)}" ${b === txf.bank ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>
   <input id="tx-q" placeholder="חיפוש בתיאור או בסעיף" value="${esc(txf.q)}" style="flex:1;min-width:140px"></div>
   ${canEdit() && txf.bank ? `<p><button class="b sec" id="bk-hide">${hiddenBanks().includes(txf.bank) ? 'ביטול הסתרה: ' : 'הסתרת החשבון מהסיכומים: '}${esc(txf.bank)}</button></p>` : ''}
-  ${canEdit() ? '<p><button class="b sec" id="bf-open">⬆ ייבוא מקובץ בנק</button> <button class="b sec" id="tr-open">🔄 העברות בין חשבונות</button> <button class="b sec" id="dp-open">👯 כפילויות מייבוא</button> <button class="b sec" id="imp-open">' + impLabel() + '</button> <button class="b sec" id="rc-open">🔁 חיובים חוזרים</button> <button class="b sec" id="rl-open">🏷️ כללי סיווג</button> <button class="b sec" id="cats-open">🗂 ניהול קטגוריות</button></p>' : ''}
+  ${canEdit() ? '<p><button class="b sec" id="bf-open">⬆ ייבוא מקובץ בנק</button> <button class="b sec" id="tr-open">🔄 העברות בין חשבונות</button> <button class="b sec" id="dp-open">👯 כפילויות מייבוא</button> <button class="b sec" id="src-open">🏦 מקורות בנק</button> <button class="b sec" id="imp-open">' + impLabel() + '</button> <button class="b sec" id="rc-open">🔁 חיובים חוזרים</button> <button class="b sec" id="rl-open">🏷️ כללי סיווג</button> <button class="b sec" id="cats-open">🗂 ניהול קטגוריות</button></p>' : ''}
   <p><label><input type="checkbox" id="tx-none" ${txf.none ? 'checked' : ''}> רק תנועות בלי סעיף (${uncat})</label><br><span class="mut">בחירת סעיף כאן משנה את התנועה הזו בלבד. כדי לסווג כל התנועות הדומות יוצרים כלל (כפתור כללי סיווג).</span></p>
   <div class="grid"><div class="kpi"><small>הכנסות</small><strong class="good">${dd('t-i', () => ({ title: 'הכנסות בסינון הנוכחי', total: fmt(inc), explain: 'תנועות הכנסה שמוצגות לפי המסננים (חודש, חשבון, חיפוש, סעיף). לא נספרות העברות בין חשבונות, כפילויות ותנועות שלא נספרות בתקציב.', ...txPart(rows.filter(t => !isDup(t) && t.type === 'income')) }), fmt(inc))}</strong></div><div class="kpi"><small>הוצאות</small><strong class="bad">${dd('t-e', () => ({ title: 'הוצאות בסינון הנוכחי', total: fmt(exp), explain: 'תנועות הוצאה שמוצגות לפי המסננים. לא נספרות העברות בין חשבונות, כפילויות ותנועות שלא נספרות בתקציב.', ...txPart(rows.filter(t => !isDup(t) && t.type !== 'income')) }), fmt(exp))}</strong></div><div class="kpi"><small>הפרש</small><strong>${dd('t-d', () => ({ title: 'הפרש בסינון הנוכחי', total: fmt(inc - exp), explain: 'הכנסות פחות הוצאות בתנועות שמוצגות.', parts: [['הכנסות', inc], ['הוצאות', -exp]] }), fmt(inc - exp))}</strong></div></div>
   ${canEdit() && rows.length ? `<div class="row" style="margin-top:8px"><label><input type="checkbox" id="tx-all"> סימון כל המוצגות</label><select id="tx-bulkcat" style="width:auto"><option value="">סעיף לסימונים…</option>${[...catGroups('expense'), ...catGroups('income').filter(g => !EXTRA_G.includes(g[0])).map(g => [g[0] + ' (הכנסות)', g[1]])].map(([title, names]) => `<optgroup label="${title}">${names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select><button class="b sec" id="tx-bulkset">החלה על המסומנות</button><button class="b red" id="tx-bulkdel">מחיקת המסומנות</button></div>` : ''}
@@ -1035,30 +1035,21 @@ function planFromImport() {
   };
 }
 /* ---------- תנועות שנראות כפולות באותו חודש: אותו חשבון, סכום ותיאור. רק התראה, ההחלטה אצל המשתמש ---------- */
-// פאג"י והבינלאומי הם אותו בנק (קבוצת הבינלאומי) עם אותם מספרי חשבון: אותה תנועה שנקלטה משתי הגדרות נחשבת לאותו מקור
-const coGroup = t => ['pagi', 'beinleumi'].includes(t.co) ? 'fibi' : (t.co || '');
-const acctKey = t => t.co ? coGroup(t) + '·' + (t.ac || '') : bankOf(t);
-const twoSources = a => new Set(a.map(t => t.co || '')).size > 1;
 function suspectDups() {
   const g = {};
-  live('tx').filter(t => !t.nodup && !t.auto).forEach(t => { const k = [ymOf(t), t.type, (+t.amount).toFixed(2), acctKey(t), normNote(t.note)].join('|'); (g[k] = g[k] || []).push(t); });
+  live('tx').filter(t => !t.nodup && !t.auto).forEach(t => { const k = [ymOf(t), t.type, (+t.amount).toFixed(2), bankOf(t), normNote(t.note)].join('|'); (g[k] = g[k] || []).push(t); });
   return Object.values(g).filter(a => a.length > 1).map(a => a.sort((x, y) => String(x.date).localeCompare(y.date)));
 }
 function dupNotice(ym) {
   if (!canEdit()) return '';
-  const gs = suspectDups().filter(a => !ym || ymOf(a[0]) === ym), n = gs.length, x = gs.filter(twoSources).length;
-  return n ? `<div class="alert y" id="sd-notice">⚠️ ${n} ${n === 1 ? 'תנועה שנראית כפולה' : 'קבוצות של תנועות שנראות כפולות'}${ym ? ' בחודש הזה' : ''} (אותו חשבון, סכום ותיאור באותו חודש)${x ? `, מהן ${x} שנקלטו משתי הגדרות בנק לאותו חשבון` : ''}. <button class="b sec" data-sd-open>בדיקה</button></div>` : '';
+  const n = suspectDups().filter(a => !ym || ymOf(a[0]) === ym).length;
+  return n ? `<div class="alert y" id="sd-notice">⚠️ ${n} ${n === 1 ? 'תנועה שנראית כפולה' : 'קבוצות של תנועות שנראות כפולות'}${ym ? ' בחודש הזה' : ''} (אותו חשבון, סכום ותיאור באותו חודש). <button class="b sec" data-sd-open>בדיקה</button></div>` : '';
 }
 function dupSameMonth() {
   const groups = suspectDups().sort((a, b) => ymOf(b[0]).localeCompare(ymOf(a[0])));
   const m = modal(`<h2>תנועות שנראות כפולות</h2><p class="mut">אותו חשבון, סכום ותיאור באותו חודש. תנועות זהות לגמרי יכולות להיות אמיתיות (למשל שתי קניות זהות באותו יום), ולכן ההחלטה שלך: להסתיר את ההעתק מהספירה (אפשר לבטל בדף הייבוא או בכפתור הכפילויות), או לסמן שזו לא כפילות.</p>
-    ${groups.length ? `<div class="scroll"><table><tr><th>חודש</th><th>תיאור</th><th>סכום</th><th>תאריכים</th><th></th></tr>${groups.slice(0, 80).map((a, i) => `<tr><td>${ymOf(a[0]).slice(5)}/${ymOf(a[0]).slice(0, 4)}</td><td>${esc(a[0].note || '')} <span class="mut">${esc([...new Set(a.map(bankOf))].join(' / '))}</span>${twoSources(a) ? ' <b class="bad">שתי הגדרות בנק</b>' : ''}</td><td class="n">${fmt(+a[0].amount)} ×${a.length}</td><td>${a.map(t => esc(String(t.date).slice(8, 10) + '/' + String(t.date).slice(5, 7))).join(', ')}</td><td><button class="b sec" data-sd-hide="${i}">הסתר העתקים</button> <button class="b sec" data-sd-ok="${i}">לא כפילות</button></td></tr>`).join('')}</table></div>${groups.length > 80 ? `<p class="mut">מוצגות 80 הראשונות מתוך ${groups.length}.</p>` : ''}` : '<p>לא נמצאו.</p>'}
-    <div class="row" style="margin-top:12px">${groups.some(twoSources) ? '<button class="b" id="sd-cross">הסתר העתקים של שתי הגדרות בנק</button>' : ''}<button class="b sec" id="sd-close">סגירה</button></div>`);
-  m.querySelector('#sd-cross')?.addEventListener('click', () => {
-    let n = 0;
-    groups.filter(twoSources).forEach(a => { const keep = a.find(t => t.cat) || a[0]; a.filter(t => t !== keep).forEach(t => { put('tx', { ...t, dupOf: keep.id }); n++; }); });
-    toast(`הוסתרו ${n} העתקים`); m.remove(); render();
-  });
+    ${groups.length ? `<div class="scroll"><table><tr><th>חודש</th><th>תיאור</th><th>סכום</th><th>תאריכים</th><th></th></tr>${groups.slice(0, 80).map((a, i) => `<tr><td>${ymOf(a[0]).slice(5)}/${ymOf(a[0]).slice(0, 4)}</td><td>${esc(a[0].note || '')} <span class="mut">${esc(bankOf(a[0]))}</span></td><td class="n">${fmt(+a[0].amount)} ×${a.length}</td><td>${a.map(t => esc(String(t.date).slice(8, 10) + '/' + String(t.date).slice(5, 7))).join(', ')}</td><td><button class="b sec" data-sd-hide="${i}">הסתר העתקים</button> <button class="b sec" data-sd-ok="${i}">לא כפילות</button></td></tr>`).join('')}</table></div>${groups.length > 80 ? `<p class="mut">מוצגות 80 הראשונות מתוך ${groups.length}.</p>` : ''}` : '<p>לא נמצאו.</p>'}
+    <div class="row" style="margin-top:12px"><button class="b sec" id="sd-close">סגירה</button></div>`);
   m.querySelector('#sd-close').onclick = () => { m.remove(); render(); };
   m.querySelectorAll('[data-sd-hide]').forEach(b => b.onclick = () => { const a = groups[+b.dataset.sdHide]; a.slice(1).forEach(t => put('tx', { ...t, dupOf: a[0].id })); toast(`הוסתרו ${a.length - 1} העתקים`); b.closest('tr').remove(); });
   m.querySelectorAll('[data-sd-ok]').forEach(b => b.onclick = () => { groups[+b.dataset.sdOk].forEach(t => put('tx', { ...t, nodup: true })); toast('סומן שזו לא כפילות'); b.closest('tr').remove(); });
@@ -1075,15 +1066,64 @@ const INC_KINDS = ['income', 'incomeVar'], EXP_KINDS = ['fixed', 'variable', 'co
 const planParts = (inc, mult, label = '') => inc
   ? planRowsOf(INC_KINDS).map(p => [p.name, (+p.amount || 0) * mult, `${fmt(+p.amount || 0)}${mult > 1 ? ' × ' + mult : ''} · ${PLAN_KINDS[p.kind]}${label}`])
   : [...planRowsOf(EXP_KINDS).map(p => [p.name, (+p.amount || 0) * mult, `${fmt(+p.amount || 0)}${mult > 1 ? ' × ' + mult : ''} · ${PLAN_KINDS[p.kind]}${label}`]), ...debtRowsOf().map(([n, v]) => [n, v * mult, `החזר חודשי${mult > 1 ? ' × ' + mult : ''}`])];
-const txPart = (txs, extra = []) => ({ txs, parts: [...extra, ...(txs.some(t => t.auto) ? [['מזה: סכומים אוטומטיים מהתכנון', txs.filter(t => t.auto).reduce((a, t) => a + (t.type === 'income' ? 1 : -1) * +t.amount, 0), 'בחודשים שאין בהם תנועה בסעיף קבוע']] : []), ...byCatParts(txs).map(([c, v]) => [c, v, 'לפי סעיף'])] });
+const txPart = (txs, extra = []) => ({ txs, parts: [...extra, ...(txs.some(t => t.auto) ? [['מזה: סכומים אוטומטיים מהתכנון', txs.filter(t => t.auto).reduce((a, t) => a + (t.type === 'income' ? 1 : -1) * +t.amount, 0), 'בחודשים שאין בהם תנועה בסעיף קבוע']] : []), ...byCatParts(txs).map(([c, v]) => [c, v, 'לפי סעיף', c === 'ללא סעיף' ? '' : c])] });
+const catOptionsHtml = () => `<option value="">בחירת סעיף…</option><option value="__none">ללא סעיף</option>${[...catGroups('expense').map(([t, n]) => ['הוצאות · ' + t, n]), ...catGroups('income').map(([t, n]) => ['הכנסות · ' + t, n])].map(([t, names]) => `<optgroup label="${esc(t)}">${names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}`;
 function openDD(key) {
-  const b = DDB[key]; if (!b) return;
-  const d = b(), txs = (d.txs || []).slice().sort((a, c) => String(effDate(c)).localeCompare(effDate(a))), cap = 200;
-  const m = modal(`<h2>${esc(d.title)}</h2><p style="font-size:1.6rem;margin:.2rem 0"><b>${d.total}</b></p>${d.explain ? `<p class="mut">${esc(d.explain)}</p>` : ''}
-    ${(d.parts || []).length ? `<h3>מרכיבי החישוב</h3><div class="scroll"><table><tr><th>רכיב</th><th>סכום</th></tr>${d.parts.map(([l, v, note]) => `<tr><td>${esc(l)}${note ? ' <span class="mut">· ' + esc(note) + '</span>' : ''}</td><td class="n">${typeof v === 'number' ? fmt(v) : esc(v)}</td></tr>`).join('')}</table></div>` : ''}
-    ${txs.length ? `<h3>${txs.length} תנועות</h3><div class="scroll"><table><tr><th>תאריך</th><th>מקור</th><th>תיאור</th><th>סעיף</th><th>סכום</th></tr>${txs.slice(0, cap).map(t => `<tr><td>${esc(String(effDate(t)).slice(0, 10).split('-').reverse().join('/'))}</td><td class="mut">${esc(srcOf(t))}${bankOf(t) ? ' · ' + esc(bankOf(t)) : ''}</td><td>${esc(t.note || '')}</td><td>${esc(t.cat || '')}</td><td class="n ${t.type === 'income' ? 'good' : 'bad'}">${t.type === 'income' ? '+' : '−'}${fmt(+t.amount)}</td></tr>`).join('')}</table></div>${txs.length > cap ? `<p class="mut">מוצגות ${cap} הראשונות מתוך ${txs.length}.</p>` : ''}` : ''}
-    <div class="row" style="margin-top:12px"><button class="b sec" id="dd-close">סגירה</button></div>`);
-  m.querySelector('#dd-close').onclick = () => m.remove();
+  if (!DDB[key]) return;
+  let filter = null, picked = new Set();
+  const m = modal('');
+  const draw = () => {
+    const d = DDB[key](), cap = 200;
+    let txs = (d.txs || []).slice().sort((a, c) => String(effDate(c)).localeCompare(effDate(a)));
+    const all = txs.length; if (filter !== null) txs = txs.filter(t => (t.cat || '') === filter);
+    m.firstElementChild.innerHTML = `<h2>${esc(d.title)}</h2><p style="font-size:1.6rem;margin:.2rem 0"><b>${d.total}</b></p>${d.explain ? `<p class="mut">${esc(d.explain)}</p>` : ''}
+    ${(d.parts || []).length ? `<h3>מרכיבי החישוב</h3>${all ? '<p class="mut">לחיצה על סעיף מציגה את התנועות שלו, ואפשר לשייך או לשנות סעיף.</p>' : ''}<div class="scroll"><table><tr><th>רכיב</th><th>סכום</th></tr>${d.parts.map(([l, v, note, cat], i) => `<tr ${cat !== undefined ? `class="dd-row" data-ddp="${i}" style="cursor:pointer"` : ''}${cat !== undefined && filter === cat ? ' style="background:var(--soft,#eee)"' : ''}><td>${esc(l)}${note ? ' <span class="mut">· ' + esc(note) + '</span>' : ''}</td><td class="n">${typeof v === 'number' ? fmt(v) : esc(v)}</td></tr>`).join('')}</table></div>` : ''}
+    ${all ? `<h3>${txs.length} תנועות${filter !== null ? ` · ${esc(filter || 'ללא סעיף')} <button class="b sec" id="dd-all">הצג הכל</button>` : ''}</h3>
+    ${canEdit() ? `<div class="row"><select id="dd-cat">${catOptionsHtml()}</select><button class="b" id="dd-assign">שייך את הנבחרות</button></div>` : ''}
+    <div class="scroll"><table><tr>${canEdit() ? '<th><input type="checkbox" id="dd-pall"></th>' : ''}<th>תאריך</th><th>מקור</th><th>תיאור</th><th>סעיף</th><th>סכום</th></tr>${txs.slice(0, cap).map(t => `<tr>${canEdit() ? `<td>${t.auto ? '' : `<input type="checkbox" data-ddt="${esc(t.id)}" ${picked.has(t.id) ? 'checked' : ''}>`}</td>` : ''}<td>${esc(String(effDate(t)).slice(0, 10).split('-').reverse().join('/'))}</td><td class="mut">${esc(srcOf(t))}${bankOf(t) ? ' · ' + esc(bankOf(t)) : ''}</td><td>${esc(t.note || '')}</td><td>${esc(t.cat || '')}</td><td class="n ${t.type === 'income' ? 'good' : 'bad'}">${t.type === 'income' ? '+' : '−'}${fmt(+t.amount)}</td></tr>`).join('')}</table></div>${txs.length > cap ? `<p class="mut">מוצגות ${cap} הראשונות מתוך ${txs.length}.</p>` : ''}` : ''}
+    <div class="row" style="margin-top:12px"><button class="b sec" id="dd-close">סגירה</button></div>`;
+    m.querySelector('#dd-close').onclick = () => m.remove();
+    m.querySelectorAll('[data-ddp]').forEach(r => r.onclick = () => { const c = d.parts[+r.dataset.ddp][3]; filter = filter === c ? null : c; picked = new Set(); draw(); });
+    m.querySelector('#dd-all')?.addEventListener('click', () => { filter = null; draw(); });
+    m.querySelector('#dd-pall')?.addEventListener('change', e => m.querySelectorAll('[data-ddt]').forEach(c => { c.checked = e.target.checked; }));
+    m.querySelectorAll('[data-ddt]').forEach(c => c.onchange = () => { if (c.checked) picked.add(c.dataset.ddt); else picked.delete(c.dataset.ddt); });
+    m.querySelector('#dd-assign')?.addEventListener('click', () => {
+      const v = m.querySelector('#dd-cat').value, ids = [...m.querySelectorAll('[data-ddt]:checked')].map(c => c.dataset.ddt);
+      if (!v) return toast('בחרו סעיף');
+      if (!ids.length) return toast('לא נבחרו תנועות');
+      const cat = v === '__none' ? '' : v; ids.forEach(id => { const t = S.data.tx.find(x => x.id === id); if (t) put('tx', withCat(t, cat)); });
+      picked = new Set(); toast(`שויכו ${ids.length} תנועות`); render(); draw();
+    });
+  };
+  draw();
+}
+/* ---------- מקורות בנק: כל חשבון או כרטיס שמהם הגיעו תנועות. אפשר להסתיר מקור מהסיכומים, או למחוק את כל התנועות של מקור אחד ---------- */
+function bankSources() {
+  const g = {}, seen = {};
+  S.data.tx.filter(t => !t.del && isBankTx(t)).forEach(t => {
+    const k = bankOf(t) || 'לא ידוע', r = g[k] = g[k] || { k, n: 0, from: '9999', to: '', ids: [], shared: 0 }, d = String(t.date).slice(0, 10);
+    r.n++; r.ids.push(t.id); if (d < r.from) r.from = d; if (d > r.to) r.to = d;
+    const key = [d, t.type, (+t.amount).toFixed(2), t.ac || '', normNote(t.note)].join('|');
+    (seen[key] = seen[key] || new Set()).add(k);
+  });
+  // אותה תנועה (יום, סכום, תיאור וספרות חשבון) שמופיעה ביותר ממקור אחד: אולי אותו חשבון שהוגדר פעמיים
+  S.data.tx.filter(t => !t.del && isBankTx(t)).forEach(t => { const key = [String(t.date).slice(0, 10), t.type, (+t.amount).toFixed(2), t.ac || '', normNote(t.note)].join('|'); if (seen[key].size > 1) g[bankOf(t) || 'לא ידוע'].shared++; });
+  return Object.values(g).sort((a, b) => b.n - a.n);
+}
+function bankSourcesModal() {
+  const m = modal(`<h2>מקורות בנק</h2><p class="mut">כל חשבון או כרטיס שמהם הגיעו תנועות. הסתרה מוציאה מקור מכל הסיכומים (אפשר לבטל). מחיקה מסירה את כל התנועות שלו לצמיתות. אם החשבון עדיין פעיל בסנכרון, התנועות יחזרו בסריקה הבאה, ולכן קודם מכבים אותו בהגדרות הסנכרון. מקור שמוצגות לידו תנועות זהות במקור אחר עשוי להיות אותו חשבון שהוגדר פעמיים.</p><div id="src-list"></div><div class="row" style="margin-top:12px"><button class="b sec" id="src-close">סגירה</button></div>`);
+  const draw = () => {
+    const rows = bankSources();
+    m.querySelector('#src-list').innerHTML = rows.length ? `<div class="scroll"><table><tr><th>מקור</th><th>תנועות</th><th>תקופה</th><th>זהות במקור אחר</th><th></th></tr>${rows.map((r, i) => `<tr><td>${esc(r.k)}${hiddenBanks().includes(r.k) ? ' <span class="mut">(מוסתר מהסיכומים)</span>' : ''}</td><td class="n">${r.n}</td><td>${esc(r.from.slice(0, 7).split('-').reverse().join('/'))} - ${esc(r.to.slice(0, 7).split('-').reverse().join('/'))}</td><td class="n">${r.shared ? `<b class="bad">${r.shared}</b>` : '0'}</td><td><button class="b sec" data-src-hide="${i}">${hiddenBanks().includes(r.k) ? 'בטל הסתרה' : 'הסתר מהסיכומים'}</button> <button class="b red" data-src-del="${i}">מחק את כל התנועות</button></td></tr>`).join('')}</table></div>` : '<p>אין תנועות בנק.</p>';
+    m.querySelectorAll('[data-src-hide]').forEach(b => b.onclick = () => { const k = rows[+b.dataset.srcHide].k, h = hiddenBanks(); S.settings.hiddenBanks = h.includes(k) ? h.filter(x => x !== k) : [...h, k]; save(); draw(); render(); });
+    m.querySelectorAll('[data-src-del]').forEach(b => b.onclick = async () => {
+      const r = rows[+b.dataset.srcDel];
+      if (!await ask(`למחוק לצמיתות את כל ${r.n} התנועות של "${r.k}"? אי אפשר לבטל. התנועות של שאר המקורות לא ייגעו.`)) return;
+      r.ids.forEach(id => remove('tx', id)); toast(`נמחקו ${r.n} תנועות`); draw(); render();
+    });
+  };
+  m.querySelector('#src-close').onclick = () => m.remove();
+  draw();
 }
 /* ---------- פיצול תנועה לכמה סעיפים: התנועה המקורית נשארת (מסומנת כפוצלה ולא נספרת) והחלקים נספרים במקומה ---------- */
 function splitTx(t) {
@@ -1369,6 +1409,7 @@ function bindTxs() {
   $('#bk-hide')?.addEventListener('click', () => { const h = hiddenBanks(); S.settings.hiddenBanks = h.includes(txf.bank) ? h.filter(x => x !== txf.bank) : [...h, txf.bank]; save(); render(); });
   $('#tr-open')?.addEventListener('click', transfers);
   $('#dp-open')?.addEventListener('click', dupFinder);
+  $('#src-open')?.addEventListener('click', bankSourcesModal);
   $('#imp-open')?.addEventListener('click', () => { tab = 'imp'; render(); scrollTo(0, 0); });
   $('#rc-open')?.addEventListener('click', recurringModal);
   $('#rl-open')?.addEventListener('click', rulesModal);
