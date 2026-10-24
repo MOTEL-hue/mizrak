@@ -2,7 +2,7 @@ import { userDataPath } from '@/app-globals';
 import { decrypt, encrypt } from '@/backend/configManager/encryption/crypto';
 import { existsSync, promises as fs } from 'fs';
 import path from 'path';
-import { explicitRules, importTx, legacyDate, localDate, ruleCat, type ScrapedTx } from './docImport';
+import { explicitRules, importTx, legacyDate, localDate, normNote, ruleCat, type ScrapedTx } from './docImport';
 import { applyLocal, docKey, planSync, type BudgetDoc } from './docSync';
 
 // עותק מקומי ומוצפן של מסמכי התקציב. עובד גם בלי אינטרנט.
@@ -60,6 +60,11 @@ export const importScraped = (items: ScrapedTx[]) =>
     const byKey = new Map(docs.map((d) => [docKey(d), d]));
     const rules = explicitRules(docs.filter((d) => d.c === 'rules' && !d.deleted).map((d) => d.data));
     const nbCats = ((docs.find((d) => d.c === 'settings' && d.id === 'main' && !d.deleted)?.data.nbCats as string[] | undefined) ?? []);
+    // פאג"י והבינלאומי הם אותו בנק: אם אותה תנועה (יום, סכום, חשבון ותיאור) כבר נקלטה תחת החברה השנייה, לא יוצרים עותק
+    const FIBI = ['pagi', 'beinleumi'];
+    const crossKey = (t: Record<string, unknown>) => [t.date, t.type, t.amount, t.ac, normNote(t.note)].join('|');
+    const crossSeen = new Map<string, string>();
+    for (const d of docs) if (d.c === 'tx' && !d.deleted && FIBI.includes(String(d.data.co))) crossSeen.set(crossKey(d.data), String(d.data.co));
     let added = 0;
     for (const item of items) {
       const tx = importTx(item);
@@ -74,6 +79,11 @@ export const importScraped = (items: ScrapedTx[]) =>
         if (tx.pd && !existing.data.pd) fix.pd = tx.pd;
         if (Object.keys(fix).length) docs = applyLocal(docs, { c: 'tx', id: tx.id, data: { ...existing.data, ...fix } });
         continue;
+      }
+      if (FIBI.includes(String(tx.co))) {
+        const other = crossSeen.get(crossKey(tx));
+        if (other && other !== tx.co) continue;
+        crossSeen.set(crossKey(tx), String(tx.co));
       }
       if (!tx.cat) {
         tx.cat = ruleCat(rules, tx.note);

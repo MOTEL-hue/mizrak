@@ -1035,21 +1035,30 @@ function planFromImport() {
   };
 }
 /* ---------- תנועות שנראות כפולות באותו חודש: אותו חשבון, סכום ותיאור. רק התראה, ההחלטה אצל המשתמש ---------- */
+// פאג"י והבינלאומי הם אותו בנק (קבוצת הבינלאומי) עם אותם מספרי חשבון: אותה תנועה שנקלטה משתי הגדרות נחשבת לאותו מקור
+const coGroup = t => ['pagi', 'beinleumi'].includes(t.co) ? 'fibi' : (t.co || '');
+const acctKey = t => t.co ? coGroup(t) + '·' + (t.ac || '') : bankOf(t);
+const twoSources = a => new Set(a.map(t => t.co || '')).size > 1;
 function suspectDups() {
   const g = {};
-  live('tx').filter(t => !t.nodup && !t.auto).forEach(t => { const k = [ymOf(t), t.type, (+t.amount).toFixed(2), bankOf(t), normNote(t.note)].join('|'); (g[k] = g[k] || []).push(t); });
+  live('tx').filter(t => !t.nodup && !t.auto).forEach(t => { const k = [ymOf(t), t.type, (+t.amount).toFixed(2), acctKey(t), normNote(t.note)].join('|'); (g[k] = g[k] || []).push(t); });
   return Object.values(g).filter(a => a.length > 1).map(a => a.sort((x, y) => String(x.date).localeCompare(y.date)));
 }
 function dupNotice(ym) {
   if (!canEdit()) return '';
-  const n = suspectDups().filter(a => !ym || ymOf(a[0]) === ym).length;
-  return n ? `<div class="alert y" id="sd-notice">⚠️ ${n} ${n === 1 ? 'תנועה שנראית כפולה' : 'קבוצות של תנועות שנראות כפולות'}${ym ? ' בחודש הזה' : ''} (אותו חשבון, סכום ותיאור באותו חודש). <button class="b sec" data-sd-open>בדיקה</button></div>` : '';
+  const gs = suspectDups().filter(a => !ym || ymOf(a[0]) === ym), n = gs.length, x = gs.filter(twoSources).length;
+  return n ? `<div class="alert y" id="sd-notice">⚠️ ${n} ${n === 1 ? 'תנועה שנראית כפולה' : 'קבוצות של תנועות שנראות כפולות'}${ym ? ' בחודש הזה' : ''} (אותו חשבון, סכום ותיאור באותו חודש)${x ? `, מהן ${x} שנקלטו משתי הגדרות בנק לאותו חשבון` : ''}. <button class="b sec" data-sd-open>בדיקה</button></div>` : '';
 }
 function dupSameMonth() {
   const groups = suspectDups().sort((a, b) => ymOf(b[0]).localeCompare(ymOf(a[0])));
   const m = modal(`<h2>תנועות שנראות כפולות</h2><p class="mut">אותו חשבון, סכום ותיאור באותו חודש. תנועות זהות לגמרי יכולות להיות אמיתיות (למשל שתי קניות זהות באותו יום), ולכן ההחלטה שלך: להסתיר את ההעתק מהספירה (אפשר לבטל בדף הייבוא או בכפתור הכפילויות), או לסמן שזו לא כפילות.</p>
-    ${groups.length ? `<div class="scroll"><table><tr><th>חודש</th><th>תיאור</th><th>סכום</th><th>תאריכים</th><th></th></tr>${groups.slice(0, 80).map((a, i) => `<tr><td>${ymOf(a[0]).slice(5)}/${ymOf(a[0]).slice(0, 4)}</td><td>${esc(a[0].note || '')} <span class="mut">${esc(bankOf(a[0]))}</span></td><td class="n">${fmt(+a[0].amount)} ×${a.length}</td><td>${a.map(t => esc(String(t.date).slice(8, 10) + '/' + String(t.date).slice(5, 7))).join(', ')}</td><td><button class="b sec" data-sd-hide="${i}">הסתר העתקים</button> <button class="b sec" data-sd-ok="${i}">לא כפילות</button></td></tr>`).join('')}</table></div>${groups.length > 80 ? `<p class="mut">מוצגות 80 הראשונות מתוך ${groups.length}.</p>` : ''}` : '<p>לא נמצאו.</p>'}
-    <div class="row" style="margin-top:12px"><button class="b sec" id="sd-close">סגירה</button></div>`);
+    ${groups.length ? `<div class="scroll"><table><tr><th>חודש</th><th>תיאור</th><th>סכום</th><th>תאריכים</th><th></th></tr>${groups.slice(0, 80).map((a, i) => `<tr><td>${ymOf(a[0]).slice(5)}/${ymOf(a[0]).slice(0, 4)}</td><td>${esc(a[0].note || '')} <span class="mut">${esc([...new Set(a.map(bankOf))].join(' / '))}</span>${twoSources(a) ? ' <b class="bad">שתי הגדרות בנק</b>' : ''}</td><td class="n">${fmt(+a[0].amount)} ×${a.length}</td><td>${a.map(t => esc(String(t.date).slice(8, 10) + '/' + String(t.date).slice(5, 7))).join(', ')}</td><td><button class="b sec" data-sd-hide="${i}">הסתר העתקים</button> <button class="b sec" data-sd-ok="${i}">לא כפילות</button></td></tr>`).join('')}</table></div>${groups.length > 80 ? `<p class="mut">מוצגות 80 הראשונות מתוך ${groups.length}.</p>` : ''}` : '<p>לא נמצאו.</p>'}
+    <div class="row" style="margin-top:12px">${groups.some(twoSources) ? '<button class="b" id="sd-cross">הסתר העתקים של שתי הגדרות בנק</button>' : ''}<button class="b sec" id="sd-close">סגירה</button></div>`);
+  m.querySelector('#sd-cross')?.addEventListener('click', () => {
+    let n = 0;
+    groups.filter(twoSources).forEach(a => { const keep = a.find(t => t.cat) || a[0]; a.filter(t => t !== keep).forEach(t => { put('tx', { ...t, dupOf: keep.id }); n++; }); });
+    toast(`הוסתרו ${n} העתקים`); m.remove(); render();
+  });
   m.querySelector('#sd-close').onclick = () => { m.remove(); render(); };
   m.querySelectorAll('[data-sd-hide]').forEach(b => b.onclick = () => { const a = groups[+b.dataset.sdHide]; a.slice(1).forEach(t => put('tx', { ...t, dupOf: a[0].id })); toast(`הוסתרו ${a.length - 1} העתקים`); b.closest('tr').remove(); });
   m.querySelectorAll('[data-sd-ok]').forEach(b => b.onclick = () => { groups[+b.dataset.sdOk].forEach(t => put('tx', { ...t, nodup: true })); toast('סומן שזו לא כפילות'); b.closest('tr').remove(); });
