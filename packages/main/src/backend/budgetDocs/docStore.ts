@@ -2,7 +2,7 @@ import { userDataPath } from '@/app-globals';
 import { decrypt, encrypt } from '@/backend/configManager/encryption/crypto';
 import { existsSync, promises as fs } from 'fs';
 import path from 'path';
-import { explicitRules, importTx, legacyDate, localDate, ruleCat, type ScrapedTx } from './docImport';
+import { explicitRules, importTx, legacyDate, localDate, ruleCat, txNote, type ScrapedTx } from './docImport';
 import { applyLocal, docKey, planSync, type BudgetDoc } from './docSync';
 
 // עותק מקומי ומוצפן של מסמכי התקציב. עובד גם בלי אינטרנט.
@@ -72,6 +72,8 @@ export const importScraped = (items: ScrapedTx[]) =>
         if (existing.data.date === legacyDate(item.date) && existing.data.date !== tx.date) fix.date = tx.date;
         if (existing.data.pd === legacyDate(item.processedDate) && existing.data.pd !== tx.pd) fix.pd = tx.pd;
         if (tx.pd && !existing.data.pd) fix.pd = tx.pd;
+        // שם מקבל ההעברה נוסף לתיאור רק אם התיאור לא שונה ידנית
+        if (item.recipient && existing.data.note === txNote(item, false)) fix.note = tx.note;
         if (Object.keys(fix).length) docs = applyLocal(docs, { c: 'tx', id: tx.id, data: { ...existing.data, ...fix } });
         continue;
       }

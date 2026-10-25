@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { explicitRules, importTx, legacyDate, localDate, normNote, ruleCat } from './docImport';
+import { explicitRules, importTx, legacyDate, localDate, normNote, ruleCat, txNote } from './docImport';
 
 describe('importTx', () => {
   it('ממיר תנועה: הוצאה, חברה וחשבון מהמזהה', () => {
@@ -38,5 +38,16 @@ describe('תאריכים לפי שעון ישראל', () => {
   });
   it('תאריך רגיל נשאר', () => {
     expect(localDate('2026-10-05')).toBe('2026-10-05');
+  });
+});
+
+describe('שם מקבל העברה', () => {
+  it('נוסף לתיאור בלי לשנות את המזהה', () => {
+    const base = { hash: 'h1_pagi_1234', chargedAmount: -400, description: 'העברה מהחשבון', date: '2026-10-14T00:00:00.000Z' };
+    const plain = importTx(base);
+    const named = importTx({ ...base, recipient: 'רבקה לוצקין' });
+    expect(named?.id).toBe(plain?.id);
+    expect(named?.note).toBe('העברה מהחשבון - רבקה לוצקין');
+    expect(txNote({ ...base, recipient: 'רבקה לוצקין' }, false)).toBe('העברה מהחשבון');
   });
 });

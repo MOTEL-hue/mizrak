@@ -3,135 +3,133 @@ import path from 'node:path';
 import { type Browser, type Page } from 'puppeteer-core';
 import { userDataPath } from '@/app-globals';
 import { logAppEvent } from '/@/logging/operationLogger';
+import { localDate } from '../budgetDocs/docImport';
 import { clickByText, PORTAL_URL } from './pagiMortgages';
 
-// בדיקה חד-פעמית: בפאג"י תנועת העברה מופיעה כ"העברה מהחשבון" בלי שם המעביר או המקבל. כאן נשמר מה שהאתר מציג
-// בכל שלב (דף התנועות, ואחרי לחיצה על תנועת העברה), כדי לדעת איפה הפרטים נמצאים. הקובץ נכנס לקובץ האבחון.
-export const TRANSFER_DIAGNOSTIC_FILE = 'pagi-transfer-diagnostic-6.txt';
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
+// בדף "תנועות בחשבון" של פאג"י תנועת העברה יוצאת מופיעה רק כ"העברה מהחשבון". לחיצה על המילים פותחת חלון "פירוט העברות
+// שבוצעו מהחשבון" עם שם המקבל. כאן לוחצים על כל העברה, קוראים את השם, ומוסיפים אותו לתנועה (השם לא נכנס לחישוב המזהה של התנועה).
+export const TRANSFER_DIAGNOSTIC_FILE = 'pagi-transfer-diagnostic-7.txt';
 const TRANSACTIONS_URL = `${PORTAL_URL.split('#')[0]}#/Online/OnAccountMngment/OnBalanceTrans/PrivateAccountFlow`;
-
-// אחרי ניווט ההקשר של הדף נהרס באמצע הקריאה: מנסים שוב אחרי שהדף נרגע
-async function snapshot(page: Page, title: string) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      return await snapshotOnce(page, title);
-    } catch {
-      await sleep(3000);
-    }
-  }
-  return `## ${title}\n(לא נקלט)`;
-}
-
-async function snapshotOnce(page: Page, title: string) {
-  const parts = await Promise.all(
-    page.frames().filter((f) => !/netfree/i.test(f.url())).map(async (frame) => {
-      const text = await frame.evaluate(() => document.body?.innerText ?? '');
-      return text.trim() ? `[${frame.url().split('?')[0].slice(-80)}] ${text.replace(/\s+/g, ' ').slice(0, 6000)}` : '';
-    }),
-  );
-  return `## ${title}\n${parts.filter(Boolean).join('\n')}`.replace(/[\d-]{7,}/g, '###');
-}
-
-export function transferProbeDone() {
-  return fs.existsSync(path.join(userDataPath, TRANSFER_DIAGNOSTIC_FILE));
-}
-
+const MAX_TRANSFERS = 30;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const mask = (s: string) => s.replace(/[\d-]{7,}/g, '###');
 
-// כל שורות הטקסט שמוצגות כרגע בכל המסגרות (בלי הפרסומות של נטפרי)
-async function visibleLines(page: Page) {
-  const lines = new Set<string>();
-  for (const frame of page.frames().filter((f) => !/netfree/i.test(f.url()))) {
-    const text = await frame.evaluate(() => document.body?.innerText ?? '').catch(() => '');
-    text.split('\n').map((l) => l.trim()).filter(Boolean).forEach((l) => lines.add(l));
-  }
-  return lines;
+export interface TransferDetail {
+  date: string;
+  amount: number;
+  name: string;
 }
 
-const MAX_TRANSFERS = 6;
+const isoFromIsraeli = (text: string) => {
+  const m = /(\d{2})\/(\d{2})\/(\d{4})/.exec(text);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
+};
 
-// בתצוגת נייד (מסך צר) כל שורת "העברה מהחשבון" כוללת אייקון, ובלחיצה עליו נפתח חלון עם שם המקבל. מסמנים בדף את השורות והאייקונים
-async function markTransferRows(page: Page) {
+async function markTransferLinks(page: Page) {
   let total = 0;
   for (const frame of page.frames().filter((f) => !/netfree/i.test(f.url()))) {
     total += await frame
       .evaluate((max) => {
-        const dateRe = /\d{2}[./]\d{2}[./]\d{4}/;
-        const labels = Array.from(document.querySelectorAll<HTMLElement>('div, span, td, li, p')).filter(
-          (el) => el.children.length === 0 && /^העברה מהחשבון/.test((el.textContent ?? '').trim()),
-        );
-        let n = 0;
-        for (const label of labels) {
-          let row: HTMLElement | null = label;
-          while (row && !(dateRe.test(row.textContent ?? '') && row.querySelector('svg, img, button, a, [role=button], [onclick], i'))) row = row.parentElement;
-          if (!row || row.hasAttribute('data-probe-row') || n >= max) continue;
-          const icon = row.querySelector<HTMLElement>('button, a, [role=button], [onclick], svg, img, i');
-          row.setAttribute('data-probe-row', String(n));
-          icon?.setAttribute('data-probe-click', String(n));
-          n++;
-        }
-        return n;
+        const links = Array.from(document.querySelectorAll('a')).filter((a) => /^העברה מהחשבון/.test((a.textContent ?? '').trim()));
+        links.slice(0, max).forEach((a, i) => a.setAttribute('data-pagi-transfer', String(i)));
+        return Math.min(links.length, max);
       }, MAX_TRANSFERS)
       .catch(() => 0);
   }
   return total;
 }
 
-async function closeDialog(page: Page) {
-  await page.keyboard.press('Escape').catch(() => undefined);
-  await clickByText(page, '^(סגור|סגירה|×|✕|X)$');
-  await sleep(800);
+async function readDialog(page: Page): Promise<TransferDetail[]> {
+  for (const frame of page.frames()) {
+    const rows = await frame
+      .evaluate(() => {
+        const out: { date: string; amount: string; name: string }[] = [];
+        for (const table of Array.from(document.querySelectorAll('table'))) {
+          const rowsEls = Array.from(table.querySelectorAll('tr'));
+          const headers = Array.from(rowsEls[0]?.querySelectorAll('th, td') ?? []).map((c) => (c.textContent ?? '').trim());
+          const [iDate, iAmount, iName] = ['תאריך', 'סכום', 'שם'].map((h) => headers.indexOf(h));
+          if (!headers.includes('מהות ההעברה') || iDate < 0 || iAmount < 0 || iName < 0) continue;
+          for (const tr of rowsEls.slice(1)) {
+            const cells = Array.from(tr.querySelectorAll('td')).map((c) => (c.textContent ?? '').trim());
+            if (cells.length > iName) out.push({ date: cells[iDate], amount: cells[iAmount], name: cells[iName] });
+          }
+        }
+        return out;
+      })
+      .catch(() => []);
+    const details = rows
+      .map((r) => ({ date: isoFromIsraeli(r.date), amount: Math.abs(Number(r.amount.replace(/,/g, ''))), name: r.name }))
+      .filter((r) => r.date && Number.isFinite(r.amount) && r.name);
+    if (details.length) return details;
+  }
+  return [];
 }
 
-export async function probePagiTransfers(browser: Browser, timeout: number) {
+export async function readPagiTransferDetails(browser: Browser, timeout: number): Promise<TransferDetail[]> {
   let page: Page | undefined;
-  const stages: string[] = [];
+  const found: TransferDetail[] = [];
+  const log: string[] = [];
   const work = async () => {
     page = await browser.newPage();
     page.setDefaultTimeout(timeout);
-    // כמו שמשתמש מגיע לרשימה: מהדף הראשי ללחיצה על "לכל התנועות" (הדף החדש של פאג"י, עם אייקון הפירוט בכל שורה)
-    await page.goto(PORTAL_URL, { waitUntil: 'domcontentloaded' });
-    await sleep(10000);
-    const clicked = await clickByText(page, '^לכל התנועות$');
-    await sleep(15000);
-    stages.push(`## אחרי "לכל התנועות" (נלחץ: ${clicked}) כתובת: ${mask(page.url().slice(-120))}`);
-    for (const frame of page.frames().filter((f) => !/netfree/i.test(f.url()))) {
-      const text = await frame.evaluate(() => document.body?.innerText ?? '').catch(() => '');
-      stages.push(`## מסגרת ${mask(frame.url().slice(-70))}: ${text.length} תווים\n${mask(text.replace(/\s+/g, ' ').slice(0, 700))}`);
-    }
-    const count = await markTransferRows(page);
-    stages.push(`## שורות העברה שנמצאו: ${count}`);
-    if (!count) return;
+    await page.goto(TRANSACTIONS_URL, { waitUntil: 'domcontentloaded' });
+    await sleep(12000);
+    const count = await markTransferLinks(page);
+    log.push(`קישורי "העברה מהחשבון" שנמצאו: ${count}`);
     for (let i = 0; i < count; i++) {
       for (const frame of page.frames()) {
-        const row = await frame.$(`[data-probe-row="${i}"]`);
-        if (!row) continue;
-        const rowText = mask(await row.evaluate((el) => (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 160)));
-        if (i === 0) stages.push(`## מבנה שורה ראשונה\n${mask(await row.evaluate((el) => el.outerHTML)).replace(/\s+/g, ' ').slice(0, 3500)}`);
-        const before = await visibleLines(page);
-        const icon = await frame.$(`[data-probe-click="${i}"]`);
-        await (icon ?? row).click().catch(() => undefined);
-        await sleep(2500);
-        const added = [...(await visibleLines(page))].filter((l) => !before.has(l));
-        stages.push(`## העברה ${i + 1}: ${rowText}\n${added.length ? mask(added.join(' | ')).slice(0, 1500) : '(לא נפתח דבר)'}`);
-        await closeDialog(page);
+        const link = await frame.$(`a[data-pagi-transfer="${i}"]`);
+        if (!link) continue;
+        await link.click().catch(() => undefined);
+        let details: TransferDetail[] = [];
+        for (let attempt = 0; attempt < 8 && !details.length; attempt++) {
+          await sleep(1000);
+          details = await readDialog(page);
+        }
+        log.push(`העברה ${i + 1}: ${details.length ? 'נקראה' : 'החלון לא נפתח'}`);
+        found.push(...details);
+        await clickByText(page, '^סגור$');
+        await sleep(700);
         break;
       }
     }
   };
   try {
-    await Promise.race([work(), sleep(110_000)]);
+    await Promise.race([work(), sleep(90_000)]);
   } catch (e) {
-    stages.push(`שגיאה: ${(e as Error).message}`);
+    log.push(`שגיאה: ${(e as Error).message}`);
   } finally {
     await page?.close().catch(() => undefined);
     try {
-      fs.writeFileSync(path.join(userDataPath, TRANSFER_DIAGNOSTIC_FILE), stages.join('\n\n') || '(לא נקלט דבר)');
-      logAppEvent('PAGI_TRANSFER_PROBE_DONE', { stages: stages.length });
+      const sample = found[0] ? `\nדוגמה: ${found[0].date} ${found[0].amount} ${mask(found[0].name)}` : '';
+      fs.writeFileSync(path.join(userDataPath, TRANSFER_DIAGNOSTIC_FILE), log.join('\n') + sample);
+      logAppEvent('PAGI_TRANSFER_DETAILS_DONE', { transfers: found.length });
     } catch {
       // אבחון בלבד
     }
   }
+  return found;
+}
+
+type ScrapedTransaction = { date: string; chargedAmount: number; description: string; recipient?: string };
+
+// מוסיף לכל העברה יוצאת את שם המקבל, לפי תאריך וסכום
+export function attachRecipients(accounts: { txns: ScrapedTransaction[] }[] | undefined, details: TransferDetail[]) {
+  const byKey = new Map<string, string>();
+  details.forEach((d) => {
+    const key = `${d.date}|${d.amount.toFixed(2)}`;
+    if (!byKey.has(key)) byKey.set(key, d.name);
+  });
+  let attached = 0;
+  for (const account of accounts ?? []) {
+    for (const tx of account.txns) {
+      if (tx.chargedAmount >= 0 || !/^העברה מהחשבון/.test(tx.description ?? '')) continue;
+      const name = byKey.get(`${localDate(tx.date)}|${Math.abs(tx.chargedAmount).toFixed(2)}`);
+      if (name) {
+        tx.recipient = name;
+        attached++;
+      }
+    }
+  }
+  return attached;
 }

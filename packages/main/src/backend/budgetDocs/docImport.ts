@@ -7,6 +7,7 @@ export interface ScrapedTx {
   originalAmount?: number;
   description?: string;
   memo?: string;
+  recipient?: string;
   category?: string;
   date?: string;
   processedDate?: string;
@@ -37,6 +38,10 @@ export const normNote = (note: unknown) =>
     .replace(/[\s\-:]+/g, ' ')
     .trim();
 
+// התיאור של התנועה; שם מקבל ההעברה (אם נקרא מהבנק) מצורף בסוף
+export const txNote = (item: ScrapedTx, withRecipient = true) =>
+  [cut(item.description, 120), cut(item.memo, 120), withRecipient ? cut(item.recipient, 60) : ''].filter(Boolean).join(' - ');
+
 export function importTx(item: ScrapedTx): TxDoc | null {
   const hash = item.hash;
   const amount = Number(item.chargedAmount ?? item.originalAmount);
@@ -44,7 +49,7 @@ export function importTx(item: ScrapedTx): TxDoc | null {
   const id = ID_RE.test(`bk-${hash}`) ? `bk-${hash}` : `bk-${createHash('sha256').update(hash, 'utf8').digest('hex').slice(0, 40)}`;
   const parts = hash.split('_');
   const [company, account] = parts.length >= 3 ? [parts[parts.length - 2], parts[parts.length - 1].replace(/\D/g, '').slice(-4)] : ['', ''];
-  const note = [cut(item.description, 120), cut(item.memo, 120)].filter(Boolean).join(' - ');
+  const note = txNote(item);
   return {
     id,
     type: amount < 0 ? 'expense' : 'income',

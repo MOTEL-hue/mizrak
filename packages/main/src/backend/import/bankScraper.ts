@@ -5,7 +5,7 @@ import { logAppEvent } from '/@/logging/operationLogger';
 import puppeteer from 'puppeteer-core';
 import { patchVisaCalLogin } from './calLoginPatch';
 import { grabMortgagesFromLoggedInBrowser } from './pagiMortgages';
-import { probePagiTransfers, transferProbeDone } from './pagiTransferProbe';
+import { attachRecipients, readPagiTransferDetails } from './pagiTransferProbe';
 import { userDataPath } from '@/app-globals';
 import path from 'path';
 
@@ -163,7 +163,10 @@ export async function scrape(
   if (ownBrowser) {
     // פאג"י חוסם כניסה שנייה, ולכן את המשכנתא קוראים עכשיו, באותו דפדפן שכבר מחובר
     if (scrapeResult.success && companyId === 'pagi') await grabMortgagesFromLoggedInBrowser(ownBrowser, Math.max(timeout, 150_000));
-    if (scrapeResult.success && companyId === 'pagi' && !transferProbeDone()) await probePagiTransfers(ownBrowser, 60_000);
+    if (scrapeResult.success && companyId === 'pagi') {
+      const details = await readPagiTransferDetails(ownBrowser, 60_000);
+      attachRecipients(scrapeResult.accounts as Parameters<typeof attachRecipients>[0], details);
+    }
     await ownBrowser.close().catch(() => undefined);
   }
   return scrapeResult;
