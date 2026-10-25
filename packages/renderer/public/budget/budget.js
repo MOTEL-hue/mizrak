@@ -1405,7 +1405,7 @@ function bindCats() {
   const R = $('#app'), find = key => { const [c, id] = key.split('|'); return { c, x: live(c).find(r => r.id === id) }; };
   $('#cats-back')?.addEventListener('click', () => { tab = 'cls'; render(); scrollTo(0, 0); });
   $('#cats-rules')?.addEventListener('click', rulesModal);
-  R.querySelectorAll('[data-cth]').forEach(el => el.onchange = () => { mzSetCatTithe(el.dataset.cth, el.value); save(); toast('נשמר: ' + (el.value ? MZ_CLASSES[el.value] : 'לא נספרת במעשרות')); });
+  R.querySelectorAll('[data-cth]').forEach(el => el.onchange = () => { mzSetCatTithe(el.dataset.cth, el.value); save(); toast('נשמר: ' + (el.value === 'none' ? 'לא נספרת במעשרות' : MZ_CLASSES[el.value] || 'ברירת מחדל')); });
   R.querySelectorAll('[data-cx]').forEach(el => el.onchange = async () => {
     const [c, id, w] = el.dataset.cx.split('|'), x = live(c).find(r => r.id === id);
     if (!x) return toast('הקטגוריה לא נמצאה, נסו לרענן');
@@ -1654,16 +1654,15 @@ function mz() {
 }
 let mzAdd = 'income', mzHist = { tf: 'all', q: '', pft: 'none', year: null, month: null };
 const MZ_CLASSES = { income: 'הכנסה חייבת במעשרות', payment: 'תרומה', payRec: 'תרומה קבועה' };
-const mzTxTitheOpts = (sel = '') => `<option value="">🌾 מעשרות: לפי כלל</option><option value="none" ${sel === 'none' ? 'selected' : ''}>לא נספרת במעשרות</option>${Object.entries(MZ_CLASSES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('')}`;
-const mzTitheOpts = (sel = '') => `<option value="">לא נספרת במעשרות</option>${Object.entries(MZ_CLASSES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('')}`;
-// תנועות בנק שנספרות במעשרות לפי כלל (rules[].tithe) או ברירת מחדל של הקטגוריה (settings.maaser.cats). רישום ידני באותו סכום ובטווח 3 ימים נחשב אותה תנועה, ולא נספר פעמיים
+const mzTitheOpts = (sel = '', first = 'ברירת מחדל (הכנסה חייבת, הוצאה רגילה)') => `<option value="">${first}</option><option value="none" ${sel === 'none' ? 'selected' : ''}>לא נספרת במעשרות</option>${Object.entries(MZ_CLASSES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('')}`;
+const mzTxTitheOpts = sel => mzTitheOpts(sel, '🌾 מעשרות: לפי כלל / ברירת מחדל');
+// תנועות בנק שנספרות במעשרות: לפי התנועה (tx.tithe), הכלל (rules[].tithe), הקטגוריה (settings.maaser.cats), ואחרת ברירת המחדל: כל הכנסה חייבת במעשרות וכל הוצאה רגילה. 'none' מוציא מהספירה. רישום ידני באותו סכום ובטווח 3 ימים נחשב אותה תנועה, ולא נספר פעמיים
 function mzBank() {
   const cats = mz().cats || {}, rl = ruleList(), out = [];
-  if (!Object.keys(cats).length && !rl.some(r => r.tithe)) return out;
   const manual = S.data.tithes.map(e => ({ type: e.type, amt: +e.amount, rd: MH.isoRD(e.date), used: false }));
   for (const t of live('tx')) {
-    const n = normNote(t.note), r = rl.find(x => n.includes(x.nk)), k = t.tithe === 'none' ? '' : t.tithe || (r && r.tithe) || cats[t.cat] || '', amt = +t.amount, type = k === 'income' ? 'income' : 'payment';
-    if (!MZ_CLASSES[k] || !(amt > 0) || (k === 'income') !== (t.type === 'income')) continue;
+    const n = normNote(t.note), r = rl.find(x => n.includes(x.nk)), k = t.tithe || (r && r.tithe) || cats[t.cat] || (t.type === 'income' ? 'income' : ''), amt = +t.amount, type = k === 'income' ? 'income' : 'payment';
+    if (!MZ_CLASSES[k] || !(amt > 0) || (k === 'income') !== (t.type === 'income')) continue; // 'none' ואי-התאמה בין סוג התנועה לסיווג מוחרגים
     const date = effDate(t), rd = MH.isoRD(date), dup = manual.find(m => !m.used && m.type === type && Math.abs(m.amt - amt) < 0.005 && Math.abs(m.rd - rd) <= 3);
     if (dup) { dup.used = true; continue; }
     out.push({ id: 'tx-' + t.id, date, type, amount: amt, description: t.note || t.cat || 'תנועת בנק', note: 'מהבנק' + (t.cat ? ' · ' + t.cat : ''), fromTx: true, ...(k === 'payRec' ? { recurringId: 'bank' } : {}) });
@@ -1710,7 +1709,8 @@ function mzTodayLabel() { // האם היום מוגדרת התראה: מחזיר
   }
   return null;
 }
-function mzSetCatTithe(name, v) { const c = mz().cats || (mz().cats = {}); if (v) c[name] = v; else delete c[name]; }
+function mzSetCatTithe(name, v) { // 'none' נשמר, כי הוא מוציא קטגוריה של הכנסות מהספירה
+  const c = mz().cats || (mz().cats = {}); if (v) c[name] = v; else delete c[name]; }
 function mzSnap() { // היתרה נשמרת בהגדרות כדי שההתראות בשרת יתבססו על אותו חישוב (כולל תנועות הבנק)
   const m = mz(), bal = Math.round(mzTotals().bal * 100) / 100; if (m.bal !== bal) { m.bal = bal; save(); }
 }
@@ -1782,6 +1782,7 @@ function mzNotifView() {
 function mzSetView() {
   const r = mz().rate, recs = S.data.titheRec;
   return `<div class="settings-section"><div class="settings-sec-title">שיעור המעשר</div><div class="rate-grid"><button class="rate-btn ${r === .1 ? 'sel' : ''}" data-mz-rate="0.1">מעשר<small>10% מהכנסות</small></button><button class="rate-btn ${r === .2 ? 'sel' : ''}" data-mz-rate="0.2">חומש<small>20% מהכנסות</small></button></div></div><hr class="div">
+  <div class="settings-section"><div class="settings-sec-title">מה נספר אוטומטית</div><div style="font-size:.72em;opacity:.65;line-height:1.4">כל הכנסה בתקציב (תנועות בנק) נספרת כחייבת במעשרות. הוצאה נספרת כתרומה רק אם סימנת אותה כך. להוצאה או להכנסה מסוימת אפשר לשנות בטבלת התנועות, בכללי הסיווג או בקטגוריות: "לא נספרת במעשרות", תרומה, תרומה קבועה או הכנסה חייבת.</div></div><hr class="div">
   <div class="settings-section"><div class="settings-sec-title">פרטיות וקוד גישה</div><div style="font-size:.72em;opacity:.65;line-height:1.4">הסתרת הסכומים (👁 בכותרת) וקוד הגישה פועלים על כל התקציב כולל המעשרות, ומגדירים אותם בלשונית "עוד".</div></div><hr class="div">
   <div class="settings-section"><div class="settings-sec-title">הכנסות ותרומות קבועות</div>${recs.length ? recs.map(x => `<div class="rec-card${x.active === false ? ' ended' : ''}"><div style="flex-shrink:0">${x.type === 'income' ? '💰' : '🕊️'}🔁</div><div class="rec-body"><div class="rec-name">${esc(x.description)} · ${fmt(x.amount)}</div><div class="rec-meta">${MZ_FREQ[x.frequency]} · ${x.endDate ? 'עד ' + mzGregStr(x.endDate) : 'ללא הגבלה'}</div></div><span class="rec-status ${x.active === false ? 'ended' : 'active'}">${x.active === false ? 'הסתיים' : 'פעיל'}</span>${mzDel('titheRec', x.id)}</div>`).join('') : '<div class="empty" style="padding:10px"><div class="empty-txt">אין רשומות קבועות</div></div>'}<div style="font-size:.68em;opacity:.5;margin-top:4px">להוספה: "הוספה" ← 🔁 קבועה</div></div><hr class="div">
   ${canEdit() ? '<div class="settings-section"><div class="settings-sec-title">אזור מסוכן</div><div class="danger-zone"><div class="danger-zone-title">⚠️ איפוס נתוני מעשרות</div><div class="danger-zone-sub">מחיקת כל ההכנסות, התרומות והרשומות הקבועות של המעשרות (שאר התקציב לא נפגע). פעולה בלתי הפיכה.</div><button class="btn btn-err btn-full" id="mz-clear">🗑️ מחק את כל נתוני המעשרות</button></div></div>' : ''}`;
