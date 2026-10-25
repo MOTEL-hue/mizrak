@@ -9,7 +9,7 @@ export interface RangeResponse {
   total?: number;
   body: Readable;
 }
-export type FetchRange = (start: number) => Promise<RangeResponse>;
+export type FetchRange = (start: number, end?: number) => Promise<RangeResponse>;
 
 const MAX_ATTEMPTS_WITHOUT_PROGRESS = 20;
 const STALL_MS = 30_000;
@@ -93,4 +93,63 @@ export async function downloadResumable(opts: {
     if (idle >= MAX_ATTEMPTS_WITHOUT_PROGRESS) throw new Error('ההורדה לא מתקדמת. בדוק את החיבור לאינטרנט');
     if (!total || now < total) await sleep(Math.min(10 * retryDelayMs, retryDelayMs * (idle + 1)));
   }
+}
+
+// הורדה במספר חיבורים במקביל: כל חלק מהקובץ יורד בנפרד (עם המשך מהמקום שנקטע), ובסוף מחברים ובודקים את סכום הבדיקה.
+// חיבור בודד מוגבל לפעמים למהירות נמוכה מאוד (למשל בסינון תוכן), וכמה חיבורים יחד מהירים בהרבה.
+async function downloadSegment(opts: { fetchRange: FetchRange; file: string; from: number; to: number; log?: (m: string) => void; retryDelayMs: number }) {
+  const { fetchRange, file, from, to, log, retryDelayMs } = opts;
+  const length = to - from + 1;
+  let idle = 0;
+  for (;;) {
+    const start = sizeOf(file);
+    if (start >= length) return;
+    try {
+      const res = await fetchRange(from + start, to);
+      if (res.status !== 206) throw new Error(`השרת החזיר ${res.status}`);
+      await pipeToFile(res, file, true, () => undefined);
+    } catch (e) {
+      log?.(`חלק הורדה נקטע: ${(e as Error).message}`);
+    }
+    const now = sizeOf(file);
+    idle = now > start ? 0 : idle + 1;
+    if (now >= length) return;
+    if (idle >= MAX_ATTEMPTS_WITHOUT_PROGRESS) throw new Error('ההורדה לא מתקדמת');
+    await sleep(Math.min(10 * retryDelayMs, retryDelayMs * (idle + 1)));
+  }
+}
+
+export async function downloadParallel(opts: {
+  fetchRange: FetchRange;
+  partFile: string;
+  sha512: string;
+  total: number;
+  segments?: number;
+  onProgress?: (percent: number) => void;
+  log?: (message: string) => void;
+  retryDelayMs?: number;
+}): Promise<void> {
+  const { fetchRange, partFile, sha512, total, segments = 6, onProgress, log, retryDelayMs = 1000 } = opts;
+  const size = Math.ceil(total / segments);
+  const ranges = Array.from({ length: segments }, (_, i) => ({ from: i * size, to: Math.min(total, (i + 1) * size) - 1 })).filter((r) => r.from < total);
+  const files = ranges.map((_, i) => `${partFile}.seg${i}`);
+  const ticker = setInterval(() => {
+    const done = files.reduce((sum, f) => sum + sizeOf(f), 0);
+    onProgress?.(Math.min(99, Math.round((done / total) * 100)));
+  }, 500);
+  try {
+    await Promise.all(ranges.map((r, i) => downloadSegment({ fetchRange, file: files[i], from: r.from, to: r.to, log, retryDelayMs })));
+  } finally {
+    clearInterval(ticker);
+  }
+  fs.rmSync(partFile, { force: true });
+  for (const f of files) {
+    fs.appendFileSync(partFile, fs.readFileSync(f));
+    fs.rmSync(f, { force: true });
+  }
+  if ((await hashFile(partFile)) !== sha512) {
+    fs.rmSync(partFile, { force: true });
+    throw new Error('הקובץ שהורד פגום');
+  }
+  onProgress?.(100);
 }

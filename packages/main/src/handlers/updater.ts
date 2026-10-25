@@ -5,7 +5,7 @@ import electronUpdater from 'electron-updater';
 import logger from '../logging/logger';
 import { setQuitting } from '../quitState';
 import { netFetchRange } from './netFetchRange';
-import { downloadResumable, hashFile } from './resumableDownload';
+import { downloadParallel, downloadResumable, hashFile } from './resumableDownload';
 
 const { autoUpdater } = electronUpdater;
 
@@ -34,12 +34,14 @@ export const checkForUpdate = async () =>
 const progressToWindows = (percent: number) =>
   BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('updateProgress', percent < 0 ? -1 : Math.min(100, percent)));
 
+const MIN_PARALLEL_BYTES = 5_000_000;
+
 // ההורדה המלאה נעשית כאן (עם המשך מהמקום שנקטע), ואז electron-updater מוצא אותה במטמון, בודק אותה ומתקין
 async function preDownloadResumable() {
   const internals = autoUpdater as unknown as {
     updateInfoAndProvider?: {
       info: { version: string };
-      provider: { resolveFiles: (info: unknown) => { url: URL; info: { sha512: string } }[] };
+      provider: { resolveFiles: (info: unknown) => { url: URL; info: { sha512: string; size?: number } }[] };
     };
     getOrCreateDownloadHelper: () => Promise<{ cacheDirForPendingUpdate: string }>;
   };
@@ -64,13 +66,25 @@ async function preDownloadResumable() {
   fs.readdirSync(pending)
     .filter((n) => n.endsWith('.part') && n !== path.basename(partFile))
     .forEach((n) => fs.rmSync(path.join(pending, n), { force: true }));
-  await downloadResumable({
+  const common = {
     fetchRange: netFetchRange(file.url.toString()),
     partFile,
     sha512,
     onProgress: progressToWindows,
-    log: (m) => logger.info(`Update download: ${m}`),
-  });
+    log: (m: string) => logger.info(`Update download: ${m}`),
+  };
+  const total = file.info.size ?? 0;
+  try {
+    if (total > MIN_PARALLEL_BYTES) await downloadParallel({ ...common, total });
+    else await downloadResumable(common);
+  } catch (e) {
+    // אם ההורדה במקביל נכשלה (למשל השרת לא תומך בחלקים), מנסים הורדה רגילה עם המשך
+    logger.info(`Parallel update download failed: ${(e as Error).message}`);
+    fs.readdirSync(pending)
+      .filter((n) => n.startsWith(path.basename(partFile)))
+      .forEach((n) => fs.rmSync(path.join(pending, n), { force: true }));
+    await downloadResumable(common);
+  }
   fs.rmSync(finalFile, { force: true });
   fs.renameSync(partFile, finalFile);
   fs.writeFileSync(infoFile, JSON.stringify({ fileName, sha512, isAdminRightsRequired: false }));

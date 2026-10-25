@@ -4,10 +4,10 @@ import type { FetchRange } from './resumableDownload';
 
 export const netFetchRange =
   (url: string): FetchRange =>
-  (start) =>
+  (start, end) =>
     new Promise((resolve, reject) => {
       const req = net.request({ url, redirect: 'follow' });
-      if (start > 0) req.setHeader('Range', `bytes=${start}-`);
+      if (start > 0 || end !== undefined) req.setHeader('Range', `bytes=${start}-${end ?? ''}`);
       req.on('error', reject);
       req.on('response', (res) => {
         const body = new PassThrough();
