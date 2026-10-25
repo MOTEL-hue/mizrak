@@ -1660,7 +1660,9 @@ const mzTxTitheOpts = sel => mzTitheOpts(sel, '🌾 מעשרות: לפי כלל 
 function mzBank() {
   const cats = mz().cats || {}, rl = ruleList(), out = [];
   const manual = S.data.tithes.map(e => ({ type: e.type, amt: +e.amount, rd: MH.isoRD(e.date), used: false }));
-  for (const t of live('tx')) {
+  const nb = nbCats();
+  for (const t of live('tx')) { // live כבר מוציא תנועות שלא נספרות בתקציב (העברות, כפילויות, "לא נספרת"), וכאן גם קטגוריות "לא קשור"
+    if (nb.includes(t.cat)) continue;
     const n = normNote(t.note), r = rl.find(x => n.includes(x.nk)), k = t.tithe || (r && r.tithe) || cats[t.cat] || (t.type === 'income' ? 'income' : ''), amt = +t.amount, type = k === 'income' ? 'income' : 'payment';
     if (!MZ_CLASSES[k] || !(amt > 0) || (k === 'income') !== (t.type === 'income')) continue; // 'none' ואי-התאמה בין סוג התנועה לסיווג מוחרגים
     const date = effDate(t), rd = MH.isoRD(date), dup = manual.find(m => !m.used && m.type === type && Math.abs(m.amt - amt) < 0.005 && Math.abs(m.rd - rd) <= 3);
