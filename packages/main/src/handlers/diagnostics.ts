@@ -1,3 +1,4 @@
+import { TRANSFER_DIAGNOSTIC_FILE } from '../backend/import/pagiTransferProbe';
 import { App, userDataPath } from '@/app-globals';
 import { Browser, detectBrowserPlatform, getInstalledBrowsers } from '@puppeteer/browsers';
 import { ERROR_RULES, explainText } from '@/backend/import/hebrewErrors';
@@ -47,7 +48,7 @@ async function mortgageDiagnostic(): Promise<string> {
 // מה שפאג"י הציג בדף התנועות ובפרטי העברה (בדיקה חד-פעמית; עלול לכלול שמות של מעבירים ומקבלים)
 async function transferDiagnostic(): Promise<string> {
   try {
-    return (await fs.promises.readFile(path.join(userDataPath, 'pagi-transfer-diagnostic-2.txt'), 'utf8')).slice(0, 12000);
+    return (await fs.promises.readFile(path.join(userDataPath, TRANSFER_DIAGNOSTIC_FILE), 'utf8')).slice(0, 12000);
   } catch {
     return '(אין)';
   }
