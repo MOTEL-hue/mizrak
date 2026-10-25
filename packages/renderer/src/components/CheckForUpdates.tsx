@@ -23,7 +23,7 @@ function CheckForUpdates({ autoCheck }: { autoCheck?: boolean }) {
 
   useEffect(() => {
     // רק התקדמות קדימה, ובין 0 ל-100
-    return onUpdateProgress((value) => setPercent((prev) => Math.max(prev, Math.min(100, Math.max(0, value)))));
+    return onUpdateProgress((value) => setPercent((prev) => (value < 0 ? 0 : Math.max(prev, Math.min(100, value)))));
   }, []);
 
   useEffect(() => {

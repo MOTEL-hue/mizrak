@@ -32,7 +32,7 @@ export const checkForUpdate = async () =>
   });
 
 const progressToWindows = (percent: number) =>
-  BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('updateProgress', Math.min(100, Math.max(0, percent))));
+  BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('updateProgress', percent < 0 ? -1 : Math.min(100, percent)));
 
 // ההורדה המלאה נעשית כאן (עם המשך מהמקום שנקטע), ואז electron-updater מוצא אותה במטמון, בודק אותה ומתקין
 async function preDownloadResumable() {
@@ -122,6 +122,8 @@ const runDownload = async () => {
     logger.info(`Differential update download failed: ${(e as Error).message}`);
   }
   autoUpdater.disableDifferentialDownload = true;
+  // ההורדה המלאה מתחילה מההתחלה: מאפסים את סרגל ההתקדמות כדי שלא יישאר תקוע על 100%
+  progressToWindows(-1);
   try {
     await preDownloadResumable();
   } catch (e) {
