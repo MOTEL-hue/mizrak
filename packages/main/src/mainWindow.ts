@@ -15,6 +15,14 @@ async function createWindow() {
     },
   });
 
+  // כותרת החלון כוללת את מספר הגרסה, כדי שיהיה ברור איזו גרסה פתוחה
+  const title = `תקציב ${app.getVersion()}`;
+  browserWindow.setTitle(title);
+  browserWindow.on('page-title-updated', (event) => {
+    event.preventDefault();
+    browserWindow.setTitle(title);
+  });
+
   /**
    * If the 'show' property of the BrowserWindow's constructor is omitted from the initialization options,
    * it then defaults to 'true'. This can cause flickering as the window loads the html content,

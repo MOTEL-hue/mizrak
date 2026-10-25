@@ -17,8 +17,6 @@ autoUpdater.logger = logger;
 autoUpdater.autoDownload = false;
 // בהתקנת עדכון התוכנה חייבת להיסגר באמת, ולא רק להסתתר ברקע
 autoUpdater.on('before-quit-for-update', setQuitting);
-// הורדה דיפרנציאלית נתקעת ב-100% ולא מסתיימת, ולכן מורידים את הקובץ המלא (ההתקדמות מוצגת עד 100)
-autoUpdater.disableDifferentialDownload = true;
 
 // אחוזי ההורדה מוצגים בחלון, כדי שלא יהיה רק סימן מסתובב
 autoUpdater.on('download-progress', (progress) => {
@@ -78,7 +76,42 @@ async function preDownloadResumable() {
   fs.writeFileSync(infoFile, JSON.stringify({ fileName, sha512, isAdminRightsRequired: false }));
 }
 
+const DELTA_STALL_MS = 45_000;
+
+// הורדה דיפרנציאלית מורידה רק את מה ששונה (מהיר בהרבה), אבל לפעמים נתקעת. אם אין התקדמות 45 שניות מבטלים וממשיכים בהורדה המלאה
+function downloadDifferential() {
+  const token = new electronUpdater.CancellationToken();
+  return new Promise<electronUpdater.UpdateDownloadedEvent>((resolve, reject) => {
+    let stall: NodeJS.Timeout;
+    const arm = () => {
+      clearTimeout(stall);
+      stall = setTimeout(() => {
+        token.cancel();
+        reject(new Error('ההורדה הדיפרנציאלית נתקעה'));
+      }, DELTA_STALL_MS);
+    };
+    const onProgress = () => arm();
+    const done = (fn: () => void) => {
+      clearTimeout(stall);
+      autoUpdater.off('download-progress', onProgress);
+      fn();
+    };
+    arm();
+    autoUpdater.on('download-progress', onProgress);
+    autoUpdater.once('error', (e) => done(() => reject(e)));
+    autoUpdater.once('update-downloaded', (info) => done(() => resolve(info)));
+    autoUpdater.downloadUpdate(token).catch((e) => done(() => reject(e)));
+  });
+}
+
 export const downloadUpdate = async () => {
+  autoUpdater.disableDifferentialDownload = false;
+  try {
+    return await downloadDifferential();
+  } catch (e) {
+    logger.info(`Differential update download failed: ${(e as Error).message}`);
+  }
+  autoUpdater.disableDifferentialDownload = true;
   try {
     await preDownloadResumable();
   } catch (e) {
