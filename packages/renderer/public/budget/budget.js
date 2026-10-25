@@ -767,7 +767,7 @@ async function setTxCat(id, cat, after = render) {
   }
   const key0 = normNote(t.note);
   const m = modal(`<h2>שיוך לסעיף "${esc(cat)}"</h2><p class="mut">${esc(note)} · ${fmt(t.amount)}</p>
-    <div class="card"><h3>1. רק לתנועה הזו</h3><button class="b" id="sc-one">עדכן רק את התנועה הזו</button></div>
+    <div class="card"><h3>1. רק לתנועה הזו</h3><label for="sc-one-th">מעשרות לתנועה הזו</label><select id="sc-one-th">${mzTxTitheOpts(t.tithe)}</select><button class="b" id="sc-one">עדכן רק את התנועה הזו</button></div>
     <div class="card"><h3>2. הגדרה כללית לכל התנועות הדומות</h3>
       <label for="sc-key">כל תנועה שהתיאור שלה מכיל:</label><input id="sc-key" value="${esc(key0)}">
       <label><input type="checkbox" id="sc-over"> גם תנועות שכבר משויכות לסעיף אחר (יוחלפו)</label>
@@ -780,7 +780,7 @@ async function setTxCat(id, cat, after = render) {
   const upd = () => { const n = matches().length, k = normNote(m.querySelector('#sc-key').value); m.querySelector('#sc-count').textContent = k ? `הכלל יחול על התנועה הזו ועל עוד ${n} תנועות${m.querySelector('#sc-over').checked ? '' : ' שאין להן סעיף'}, וגם על תנועות עתידיות.` : 'כתבו מילה מהתיאור.'; m.querySelector('#sc-rule').disabled = !k; };
   m.querySelector('#sc-key').oninput = upd; m.querySelector('#sc-over').onchange = upd; upd();
   m.querySelector('#sc-no').onclick = () => { m.remove(); after(); };
-  m.querySelector('#sc-one').onclick = () => { put('tx', withCat(t, cat)); m.remove(); toast('נשמר: הסעיף עודכן בתנועה הזו בלבד'); after(); };
+  m.querySelector('#sc-one').onclick = () => { put('tx', { ...withCat(t, cat), tithe: m.querySelector('#sc-one-th').value || undefined }); m.remove(); toast('נשמר: הסעיף עודכן בתנועה הזו בלבד'); after(); };
   m.querySelector('#sc-rule').onclick = () => {
     const key = m.querySelector('#sc-key').value.trim(), list = matches(), nk = normNote(key), ex = live('rules').find(r => normNote(r.key) === nk);
     const th = m.querySelector('#sc-th').value;
@@ -818,7 +818,7 @@ V.txs = () => {
   ${canEdit() && rows.length ? `<div class="row" style="margin-top:8px"><label><input type="checkbox" id="tx-all"> סימון כל המוצגות</label><select id="tx-bulkcat" style="width:auto"><option value="">סעיף לסימונים…</option>${[...catGroups('expense'), ...catGroups('income').filter(g => !EXTRA_G.includes(g[0])).map(g => [g[0] + ' (הכנסות)', g[1]])].map(([title, names]) => `<optgroup label="${title}">${names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select><button class="b sec" id="tx-bulkset">החלה על המסומנות</button><button class="b red" id="tx-bulkdel">מחיקת המסומנות</button></div>` : ''}
   ${topExp.length ? `<div class="card" style="margin:8px 0"><b>הוצאות לפי סעיף</b>${topExp.map(([k, v]) => `<div data-txchip="${esc(k)}" style="cursor:pointer;margin:4px 0"><div style="display:flex;justify-content:space-between;font-size:.9rem"><span>${esc(k === '__none' ? 'ללא סעיף' : k)}</span><span>${fmt(v)}</span></div><div style="background:var(--surface-2,#eef2f7);border-radius:6px;height:8px"><div style="width:${Math.max(2, Math.round(100 * v / topExp[0][1]))}%;height:8px;border-radius:6px;background:var(--primary,#2563eb)"></div></div></div>`).join('')}</div>` : ''}
   <div class="row" style="flex-wrap:wrap;margin:8px 0">${txf.cat ? '<button class="chip" id="tx-chipclear">✕ כל הסעיפים</button>' : ''}${chips}</div>
-  ${rows.length ? `<div class="scroll"><table><tr>${canEdit() ? '<th></th>' : ''}<th>תאריך</th><th>חשבון</th><th>תיאור</th><th>סכום</th><th>סעיף</th>${canEdit() ? '<th></th>' : ''}</tr>${rows.slice(0, txf.limit).map(t => `<tr>${canEdit() ? `<td><input type="checkbox" data-sel="${esc(t.id)}" ${txSel.has(t.id) ? 'checked' : ''}></td>` : ''}<td>${esc(String(t.date).slice(8, 10))}/${esc(String(t.date).slice(5, 7))}</td><td>${esc(bankOf(t))}</td><td>${esc(t.note || '')}${t.tags ? ` <span class="mut">#${esc(String(t.tags).split(',').map(x => x.trim()).filter(Boolean).join(' #'))}</span>` : ''}${isDup(t) ? ` <span class="mut">(${t.sp ? 'פוצלה לכמה סעיפים למטה' : t.nb ? 'סומנה כלא נספרת בתקציב' : hiddenBanks().includes(bankOf(t)) ? 'חשבון מוסתר' : t.tr ? 'העברה בין החשבונות שלך' : 'מכוסה בפירוט הכרטיס'}, לא נספר)</span>` : ''}</td><td class="n ${t.type === 'income' ? 'good' : 'bad'}">${t.type === 'income' ? '+' : '-'}${fmt(t.amount)}</td><td>${canEdit() ? `<select data-txcat="${esc(t.id)}" style="min-width:130px" ${!t.cat && !isDup(t) ? 'class="uncls"' : ''}>${opts(t)}</select>${!t.cat && !isDup(t) ? '<div class="bad" style="font-size:.8rem">● לסווג</div>' : ''}` : esc(t.cat || '—')}</td>${canEdit() ? `<td><button class="ic" data-edit="tx:${esc(t.id)}" title="עריכה">✏️</button>${t.sp ? `<button class="ic" data-unsplit="${esc(t.id)}" title="ביטול פיצול">↩️</button>` : `<button class="ic" data-split="${esc(t.id)}" title="פיצול לכמה סעיפים">✂️</button><button class="ic" data-dup="${esc(t.id)}" title="שכפול">⧉</button>`}${delBtn('tx', esc(t.id))}</td>` : ''}</tr>`).join('')}</table></div>${rows.length > txf.limit ? `<p><button class="b sec" id="tx-more">הצג עוד (${rows.length - txf.limit} נוספות)</button></p>` : ''}` : '<p class="mut">אין תנועות להצגה. אפשר להפעיל את מזרק, או לייבא קובץ בלשונית "עוד".</p>'}
+  ${rows.length ? `<div class="scroll"><table><tr>${canEdit() ? '<th></th>' : ''}<th>תאריך</th><th>חשבון</th><th>תיאור</th><th>סכום</th><th>סעיף</th>${canEdit() ? '<th></th>' : ''}</tr>${rows.slice(0, txf.limit).map(t => `<tr>${canEdit() ? `<td><input type="checkbox" data-sel="${esc(t.id)}" ${txSel.has(t.id) ? 'checked' : ''}></td>` : ''}<td>${esc(String(t.date).slice(8, 10))}/${esc(String(t.date).slice(5, 7))}</td><td>${esc(bankOf(t))}</td><td>${esc(t.note || '')}${t.tags ? ` <span class="mut">#${esc(String(t.tags).split(',').map(x => x.trim()).filter(Boolean).join(' #'))}</span>` : ''}${isDup(t) ? ` <span class="mut">(${t.sp ? 'פוצלה לכמה סעיפים למטה' : t.nb ? 'סומנה כלא נספרת בתקציב' : hiddenBanks().includes(bankOf(t)) ? 'חשבון מוסתר' : t.tr ? 'העברה בין החשבונות שלך' : 'מכוסה בפירוט הכרטיס'}, לא נספר)</span>` : ''}</td><td class="n ${t.type === 'income' ? 'good' : 'bad'}">${t.type === 'income' ? '+' : '-'}${fmt(t.amount)}</td><td>${canEdit() ? `<select data-txcat="${esc(t.id)}" style="min-width:130px" ${!t.cat && !isDup(t) ? 'class="uncls"' : ''}>${opts(t)}</select>${!t.cat && !isDup(t) ? '<div class="bad" style="font-size:.8rem">● לסווג</div>' : ''}${!isDup(t) ? `<select data-txth="${esc(t.id)}" style="min-width:130px;margin-top:4px;font-size:.85rem" title="האם התנועה נספרת במעשרות">${mzTxTitheOpts(t.tithe)}</select>` : ''}` : esc(t.cat || '—')}</td>${canEdit() ? `<td><button class="ic" data-edit="tx:${esc(t.id)}" title="עריכה">✏️</button>${t.sp ? `<button class="ic" data-unsplit="${esc(t.id)}" title="ביטול פיצול">↩️</button>` : `<button class="ic" data-split="${esc(t.id)}" title="פיצול לכמה סעיפים">✂️</button><button class="ic" data-dup="${esc(t.id)}" title="שכפול">⧉</button>`}${delBtn('tx', esc(t.id))}</td>` : ''}</tr>`).join('')}</table></div>${rows.length > txf.limit ? `<p><button class="b sec" id="tx-more">הצג עוד (${rows.length - txf.limit} נוספות)</button></p>` : ''}` : '<p class="mut">אין תנועות להצגה. אפשר להפעיל את מזרק, או לייבא קובץ בלשונית "עוד".</p>'}
   <p class="mut">סעיף חדש מוסיפים בלשונית "חודשי" או "שנתי", והוא יופיע כאן ברשימה.</p></div>`;
 };
 /* ---------- ייבוא תנועות מקובץ שהורדו מאתר הבנק או הכרטיס ---------- */
@@ -1512,6 +1512,7 @@ function bindTxs() {
   $('#tx-none')?.addEventListener('change', e => { txf.none = e.target.checked; again(); });
   $('#tx-more')?.addEventListener('click', () => { txf.limit += 200; render(); });
   R.querySelectorAll('[data-txcat]').forEach(sel => sel.onchange = () => setTxCat(sel.dataset.txcat, sel.value));
+  R.querySelectorAll('[data-txth]').forEach(sel => sel.onchange = () => { const t = S.data.tx.find(x => x.id === sel.dataset.txth); if (!t) return; put('tx', { ...t, tithe: sel.value || undefined }); toast(sel.value === 'none' ? 'התנועה לא תיספר במעשרות' : sel.value ? 'נספרת במעשרות: ' + MZ_CLASSES[sel.value] : 'המעשרות לפי הכללים'); });
 }
 
 /* ---------- ייבוא פירוט משכנתא מקובץ (CSV או הדבקה מהאקסל) ---------- */
@@ -1653,6 +1654,7 @@ function mz() {
 }
 let mzAdd = 'income', mzHist = { tf: 'all', q: '', pft: 'none', year: null, month: null };
 const MZ_CLASSES = { income: 'הכנסה חייבת במעשרות', payment: 'תרומה', payRec: 'תרומה קבועה' };
+const mzTxTitheOpts = (sel = '') => `<option value="">🌾 מעשרות: לפי כלל</option><option value="none" ${sel === 'none' ? 'selected' : ''}>לא נספרת במעשרות</option>${Object.entries(MZ_CLASSES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('')}`;
 const mzTitheOpts = (sel = '') => `<option value="">לא נספרת במעשרות</option>${Object.entries(MZ_CLASSES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('')}`;
 // תנועות בנק שנספרות במעשרות לפי כלל (rules[].tithe) או ברירת מחדל של הקטגוריה (settings.maaser.cats). רישום ידני באותו סכום ובטווח 3 ימים נחשב אותה תנועה, ולא נספר פעמיים
 function mzBank() {
@@ -1660,7 +1662,7 @@ function mzBank() {
   if (!Object.keys(cats).length && !rl.some(r => r.tithe)) return out;
   const manual = S.data.tithes.map(e => ({ type: e.type, amt: +e.amount, rd: MH.isoRD(e.date), used: false }));
   for (const t of live('tx')) {
-    const n = normNote(t.note), r = rl.find(x => n.includes(x.nk)), k = (r && r.tithe) || cats[t.cat] || '', amt = +t.amount, type = k === 'income' ? 'income' : 'payment';
+    const n = normNote(t.note), r = rl.find(x => n.includes(x.nk)), k = t.tithe === 'none' ? '' : t.tithe || (r && r.tithe) || cats[t.cat] || '', amt = +t.amount, type = k === 'income' ? 'income' : 'payment';
     if (!MZ_CLASSES[k] || !(amt > 0) || (k === 'income') !== (t.type === 'income')) continue;
     const date = effDate(t), rd = MH.isoRD(date), dup = manual.find(m => !m.used && m.type === type && Math.abs(m.amt - amt) < 0.005 && Math.abs(m.rd - rd) <= 3);
     if (dup) { dup.used = true; continue; }
