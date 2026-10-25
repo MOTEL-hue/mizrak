@@ -5,8 +5,28 @@ const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 // פרטיות: כשהסכומים מוסתרים כל סכום מוצג כ-••••. הסתרה קבועה (privAlways) חוסמת הצגה, וברירת מחדל (privDefault) קובעת רק את המצב ההתחלתי
+// ההסתרה היא CSS בלבד (מחלקה על ה-body), בלי ציור מחדש ובלי שינוי גודל: כל סכום נעטף ב-span.amt בעת הציור, וכשהסכומים מוסתרים הטקסט שקוף ונקודות מצוירות במקומו
 let amtHidden = null;
-const fmt = n => amtHidden ? '••••' : (Math.round((+n || 0) * 100) / 100).toLocaleString('he-IL') + ' ₪';
+const fmt = n => (Math.round((+n || 0) * 100) / 100).toLocaleString('he-IL') + ' ₪';
+const applyPriv = () => document.body.classList.toggle('priv-on', !!amtHidden);
+(() => {
+  const AMT = /[\u200e\u200f]?-?\d[\d,]*(?:\.\d+)?\s?₪/g;
+  const wrap = root => {
+    if (!root || !root.isConnected) return;
+    const w = document.createTreeWalker(root.nodeType === 3 ? root.parentNode : root, NodeFilter.SHOW_TEXT, { acceptNode: n => /^(SCRIPT|STYLE|TEXTAREA|OPTION)$/.test(n.parentNode.nodeName) || n.parentNode.closest('.amt') || !n.nodeValue.includes('₪') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+    const nodes = []; for (let n = w.nextNode(); n; n = w.nextNode()) nodes.push(n);
+    nodes.forEach(n => {
+      const text = n.nodeValue; AMT.lastIndex = 0; if (!AMT.test(text)) return; AMT.lastIndex = 0;
+      const frag = document.createDocumentFragment(); let last = 0, m;
+      while ((m = AMT.exec(text))) { if (m.index > last) frag.append(text.slice(last, m.index)); const sp = document.createElement('span'); sp.className = 'amt'; sp.textContent = m[0]; frag.append(sp); last = m.index + m[0].length; }
+      if (last < text.length) frag.append(text.slice(last)); n.replaceWith(frag);
+    });
+  };
+  let queue = new Set(), raf = 0, obs;
+  const flush = () => { raf = 0; obs.disconnect(); queue.forEach(wrap); queue = new Set(); obs.observe(document.body, { childList: true, subtree: true }); };
+  const go = () => { obs = new MutationObserver(ms => { ms.forEach(m => m.addedNodes.forEach(n => queue.add(n))); if (!raf) raf = requestAnimationFrame(flush); }); obs.observe(document.body, { childList: true, subtree: true }); wrap(document.body); };
+  document.body ? go() : document.addEventListener('DOMContentLoaded', go);
+})();
 const today = () => new Date().toISOString().slice(0, 10);
 
 /* ---------- שנים: עברית / לועזית ---------- */
@@ -1602,10 +1622,11 @@ function render() {
   const vis = TABS.filter(t => ME.role !== 'home' || !['biz', 'debts'].includes(t[0]));
   if (tab !== 'cats' && tab !== 'imp' && !vis.find(t => t[0] === tab)) tab = 'home';
   if (amtHidden === null || S.settings.privAlways) amtHidden = !!(S.settings.privAlways || S.settings.privDefault);
+  applyPriv();
   const keepY = scrollY;
   $('#app').innerHTML = `<div class="bud-top"><h1>${esc(S.settings.family || 'תקציב המשפחה')}</h1>${window.BUDGET_EXIT ? `<a href="${esc(window.BUDGET_EXIT[0])}">${esc(window.BUDGET_EXIT[1])}</a>` : ''}
     <select id="yr">${ys.map(y => `<option value="${y}" ${y === curYear ? 'selected' : ''}>${yearLabel(y)}</option>`).join('')}</select>
-    <button id="cal" title="עברי / לועזי">${S.settings.calendar === 'heb' ? 'עברי' : 'לועזי'}</button><button id="eye" class="b sec" title="${amtHidden ? 'הצגת הסכומים' : 'הסתרת הסכומים'}">${amtHidden ? '🙈 הסכומים מוסתרים' : '👁 הסתרת סכומים'}</button></div>
+    <button id="cal" title="עברי / לועזי">${S.settings.calendar === 'heb' ? 'עברי' : 'לועזי'}</button><button id="eye" class="b sec" title="הצגה או הסתרה של הסכומים">👁 סכומים</button></div>
     <div class="bud-body">${V[tab]()}</div>${canEdit() ? '<button class="fab" id="fab" title="הזנה מהירה">+</button>' : ''}
     <nav class="bud-nav">${vis.map(t => `<button class="${t[0] === tab || (t[0] === 'cls' && tab === 'cats') || (t[0] === 'txs' && tab === 'imp') ? 'on' : ''}" data-tab="${t[0]}"><b>${t[1]}</b>${t[2]}</button>`).join('')}</nav>`;
   bind();
@@ -1624,7 +1645,7 @@ function bind() {
   $('#mortgage-import')?.addEventListener('click', mortgageImport);
   R.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); scrollTo(0, 0); });
   $('#yr').onchange = e => { curYear = +e.target.value; render(); };
-  $('#eye').onclick = () => { if (S.settings.privAlways) return toast('הסתרה קבועה מופעלת. אפשר לבטל אותה בהגדרות'); amtHidden = !amtHidden; render(); };
+  $('#eye').onclick = () => { if (S.settings.privAlways) return toast('הסתרה קבועה מופעלת. אפשר לבטל אותה בהגדרות'); amtHidden = !amtHidden; applyPriv(); };
   $('#cal').onclick = () => { S.settings.calendar = S.settings.calendar === 'heb' ? 'greg' : 'heb'; curYear = null; save(); render(); };
   $('#fab')?.addEventListener('click', quickAdd);
   R.querySelectorAll('[data-done]').forEach(b => b.onclick = () => { const p = live('plan').find(x => x.id === b.dataset.done); if (!p) return; put('tx', { id: uid(), type: p.kind === 'incomeVar' || p.kind === 'income' ? 'income' : 'expense', amount: +p.amount, cat: p.name, note: 'בוצע כמתוכנן', date: curMonth === today().slice(0, 7) ? today() : curMonth + '-15', acct: '' }); toast('נרשם: ' + p.name); render(); });

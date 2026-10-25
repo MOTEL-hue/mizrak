@@ -75,3 +75,4 @@
 
 /* עיצוב האתר צובע כל כפתור בצבע טקסט של כפתור ראשי (!important); כאן כפתורים בהירים מקבלים טקסט כהה כדי שלא ייעלמו */
 #app .dd{cursor:pointer;color:inherit;text-decoration:underline dotted;text-underline-offset:4px;border-radius:4px;padding:0 2px}#app .dd:hover,#app .dd:focus-visible{background:var(--soft,#eee)}
+.amt{display:inline-block;position:relative}body.priv-on .amt{color:transparent!important;user-select:none}body.priv-on .amt::after{content:'••••';position:absolute;top:0;left:50%;transform:translateX(-50%);white-space:nowrap;line-height:inherit;color:var(--text,#222);letter-spacing:1px}
