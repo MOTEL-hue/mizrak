@@ -1834,11 +1834,11 @@ function render() {
   if (amtHidden === null || S.settings.privAlways) amtHidden = !!(S.settings.privAlways || S.settings.privDefault);
   applyPriv();
   const keepY = scrollY;
-  $('#app').innerHTML = `<div class="bud-top"><h1>${esc(S.settings.family || 'תקציב המשפחה')}</h1>${window.BUDGET_EXIT ? `<a href="${esc(window.BUDGET_EXIT[0])}">${esc(window.BUDGET_EXIT[1])}</a>` : ''}
+  $('#app').innerHTML = `<nav class="bud-nav">${vis.map(t => `<button class="${t[0] === tab || (t[0] === 'cls' && tab === 'cats') || (t[0] === 'txs' && tab === 'imp') ? 'on' : ''}" data-tab="${t[0]}"><b>${t[1]}</b>${t[2]}</button>`).join('')}</nav>
+    <div class="bud-top"><h1>${esc(S.settings.family || 'תקציב המשפחה')}</h1>${window.BUDGET_EXIT ? `<a href="${esc(window.BUDGET_EXIT[0])}">${esc(window.BUDGET_EXIT[1])}</a>` : ''}
     <select id="yr">${ys.map(y => `<option value="${y}" ${y === curYear ? 'selected' : ''}>${yearLabel(y)}</option>`).join('')}</select>
     <button id="cal" title="עברי / לועזי">${S.settings.calendar === 'heb' ? 'עברי' : 'לועזי'}</button><button id="eye" class="b sec" title="הצגה או הסתרה של הסכומים">👁 סכומים</button></div>
-    <div class="bud-body">${V[tab]()}</div>${canEdit() ? '<button class="fab" id="fab" title="הזנה מהירה">+</button>' : ''}
-    <nav class="bud-nav">${vis.map(t => `<button class="${t[0] === tab || (t[0] === 'cls' && tab === 'cats') || (t[0] === 'txs' && tab === 'imp') ? 'on' : ''}" data-tab="${t[0]}"><b>${t[1]}</b>${t[2]}</button>`).join('')}</nav>`;
+    <div class="bud-body">${V[tab]()}</div>${canEdit() ? '<button class="fab" id="fab" title="הזנה מהירה">+</button>' : ''}`;
   bind();
   scrollTo(0, keepY);
 }

@@ -157,3 +157,9 @@
 .mz .danger-zone{background:rgba(179,38,30,.06);border:1px solid rgba(179,38,30,.25);border-radius:var(--r-md);padding:14px}
 .mz .danger-zone-title{font-size:.78em;font-weight:700;color:var(--c-err);margin-bottom:8px}.mz .danger-zone-sub{font-size:.68em;opacity:.65;margin-bottom:10px;line-height:1.4}
 .mz hr.div{border:0;border-top:1px solid var(--c-out);margin:10px 0;opacity:.35}
+@media (min-width:900px){
+#app .bud-nav{position:sticky;top:0;bottom:auto;inset-inline:auto;border-top:0;border-bottom:1px solid var(--border);box-shadow:0 4px 14px rgba(0,0,0,.06);margin-bottom:1rem;border-radius:0 0 12px 12px}
+#app .bud-nav button{font-size:.9rem;padding:.6rem .4rem}
+#app .fab{bottom:1.2rem}
+.site-main:has(#app .bud-body){max-width:none!important;width:100%;padding-inline:1.5rem}
+}
