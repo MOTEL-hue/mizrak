@@ -81,3 +81,4 @@
 .sw-row{display:flex;gap:8px;align-items:center;margin:6px 0}.sw-row span{flex:1}
 .sw b,.sw small{display:block}.sw small{font-size:13px;margin-top:2px}.sw{margin-bottom:8px}
 .card label.sw{display:flex!important;flex-direction:row}
+#app .dd .amt{text-decoration:underline dotted;text-underline-offset:4px}#app .dd:has(.amt){text-decoration:none}#app .dd .amt{border-bottom:1.5px dotted currentColor;padding-bottom:1px}
