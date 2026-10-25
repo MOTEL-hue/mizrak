@@ -1685,24 +1685,31 @@ function mzTodayLabel() { // האם היום מוגדרת התראה: מחזיר
   }
   return null;
 }
-function mzNav(sub) { return `<div class="tabs">${[['dash', '📊 סיכום'], ['add', '➕ הוספה'], ['hist', '🕘 היסטוריה'], ['notif', '🔔 התראות'], ['set', '⚙️ הגדרות']].map(([k, l]) => `<button class="${k === sub ? 'on' : ''}" data-sub="maaser:${k}">${l}</button>`).join('')}</div>`; }
+function mzNav(sub) { return `<div class="mz-tabs">${[['dash', '▦', 'סיכום'], ['add', '＋', 'הוספה'], ['hist', '🕘', 'היסטוריה'], ['notif', '🔔', 'התראות'], ['set', '⚙️', 'הגדרות']].map(([k, ic, l]) => `<button class="${k === sub ? 'active' : ''}" data-sub="maaser:${k}"><b>${ic}</b>${l}</button>`).join('')}</div>`; }
+const mzTog = (attrs, on) => `<label class="tog-wrap"><input type="checkbox" ${attrs} ${on ? 'checked' : ''}><span class="tog-slider"></span></label>`;
+const mzDel = (c, id) => canEdit() ? `<button class="h-del" data-del="${c}:${id}" title="מחיקה">✕</button>` : '';
 function mzDash() {
   const { inc, paid, oblig, bal, extra, pct } = mzTotals(), pc = Math.round(mz().rate * 100);
-  return `<div class="grid"><div class="kpi"><small>סה"כ הכנסות</small><strong>${fmt(inc)}</strong></div><div class="kpi"><small>חובת מעשר (${pc}%)</small><strong>${fmt(oblig)}</strong></div>
-  <div class="kpi"><small>שולם עד כה</small><strong>${fmt(paid)}</strong></div><div class="kpi"><small>יתרה לתשלום</small><strong class="${bal > 0 ? 'bad' : 'good'}">${fmt(bal)}</strong>${extra > 0 ? `<small>עודף ${fmt(extra)} למעשר הבא ✓</small>` : ''}</div></div>
-  <div class="card"><div class="row"><b>התקדמות תשלום המעשר</b><span class="sp"></span><b>${pct >= 100 ? '✓ שולם' : Math.round(pct) + '%'}</b></div><div class="bar" style="margin-top:.5rem"><i style="width:${pct.toFixed(1)}%;${pct >= 100 ? 'background:var(--good)' : ''}"></i></div></div>
-  ${canEdit() ? '<button class="b" id="mz-quick" style="width:100%;padding:.8rem">⚡ תרומה מהירה</button>' : ''}`;
+  return `<div class="summary-grid"><div class="sc"><div class="sc-label">סה"כ הכנסות</div><div class="sc-value">${fmt(inc)}</div></div><div class="sc hi"><div class="sc-label">חובת מעשר (${pc}%)</div><div class="sc-value">${fmt(oblig)}</div></div>
+  <div class="sc"><div class="sc-label">שולם עד כה</div><div class="sc-value">${fmt(paid)}</div></div><div class="sc ${bal > 0 ? 'err' : 'ok'}"><div class="sc-label">יתרה לתשלום</div><div class="sc-value">${fmt(bal)}</div>${extra > 0 ? `<div class="sc-label" style="margin-top:4px">עודף ${fmt(extra)} למעשר הבא ✓</div>` : ''}</div></div>
+  <div class="card"><div class="mz-row"><span class="card-title" style="margin:0">התקדמות תשלום המעשר</span><span class="sp"></span><b style="font-size:.8em;color:${pct >= 100 ? '#228B22' : 'var(--c-pri)'}">${pct >= 100 ? '✓ שולם' : Math.round(pct) + '%'}</b></div><div class="prog-wrap"><div class="prog-bar" style="width:${pct.toFixed(1)}%;${pct >= 100 ? 'background:#228B22' : ''}"></div></div></div>
+  ${canEdit() ? '<button class="qp-trigger-card" id="mz-quick"><span><div class="qp-trigger-label">⚡ תרומה מהירה</div><div class="qp-trigger-sub">לחץ לתשלום מעשר</div></span><span class="qp-trigger-icon">‹</span></button>' : ''}`;
 }
 function mzAddView() {
-  const rate = Math.round(mz().rate * 100);
-  return `<div class="card"><div class="tabs">${[['income', '💰 הכנסה'], ['payment', '🕊️ תרומה'], ['recurring', '🔁 קבועה (הכנסה / תרומה)']].map(([k, l]) => `<button class="${k === mzAdd ? 'on' : ''}" data-mz-type="${k}">${l}</button>`).join('')}</div>
-  <div id="mz-one" ${mzAdd === 'recurring' ? 'hidden' : ''}><label>סכום (₪) *</label><input id="mz-amt" type="number" min="0" step="0.01" placeholder="0.00"><p class="mut" id="mz-prev" hidden></p>
-  <label>תיאור *</label><input id="mz-desc" placeholder="משכורת או תרומה..."><label>תאריך</label><input id="mz-date" type="date" value="${today()}"><label>הערה</label><textarea id="mz-note" rows="2" placeholder="פרטים נוספים..."></textarea>
-  <button class="b" id="mz-save" data-rate="${rate}" style="margin-top:.8rem;width:100%">💾 שמירה</button></div>
-  <div id="mz-rec" ${mzAdd === 'recurring' ? '' : 'hidden'}><label>סוג</label><select id="mz-r-type"><option value="payment">🕊️ תרומה / הוצאה קבועה</option><option value="income">💰 הכנסה קבועה</option></select><label>סכום (₪) *</label><input id="mz-r-amt" type="number" min="0" step="0.01" placeholder="0.00"><label>תיאור *</label><input id="mz-r-desc" placeholder="משכורת, תרומה חודשית לישיבה...">
-  <label>תדירות</label><select id="mz-r-freq">${Object.entries(MZ_FREQ).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select><label>תאריך התחלה</label><input id="mz-r-start" type="date" value="${today()}">
-  <label class="sw"><input type="checkbox" id="mz-r-has"><span><b>תאריך סיום</b></span></label><input id="mz-r-end" type="date" disabled><label>הערה</label><input id="mz-r-note" placeholder="פרטים...">
-  <button class="b" id="mz-r-save" style="margin-top:.8rem;width:100%">💾 שמירת תרומה קבועה</button></div></div>`;
+  return `<div class="card"><div class="type-toggle">${[['income', 't-inc', '💰 הכנסה'], ['payment', 't-pay', '🕊️ תרומות'], ['recurring', 't-rec', '🔁 קבועה']].map(([k, c, l]) => `<button class="type-btn ${c} ${k === mzAdd ? 'active' : ''}" data-mz-type="${k}">${l}</button>`).join('')}</div>
+  <div id="mz-one" ${mzAdd === 'recurring' ? 'hidden' : ''}><div class="form-group"><label class="form-label">סכום (₪) *</label><input class="form-input" id="mz-amt" type="number" min="0" step="0.01" placeholder="0.00"><div class="preview-box" id="mz-prev" hidden></div></div>
+  <div class="form-group"><label class="form-label">תיאור *</label><input class="form-input" id="mz-desc" type="text" placeholder="משכורת או תרומה..."></div>
+  <div class="form-group"><label class="form-label">תאריך</label><input class="form-input" id="mz-date" type="date" value="${today()}"></div>
+  <div class="form-group"><label class="form-label">הערה</label><textarea class="form-textarea" id="mz-note" placeholder="פרטים נוספים..."></textarea></div>
+  <button class="btn btn-pri btn-full" id="mz-save">💾 שמור</button></div>
+  <div id="mz-rec" ${mzAdd === 'recurring' ? '' : 'hidden'}><div class="form-group"><label class="form-label">סוג</label><select class="form-select" id="mz-r-type"><option value="payment">🕊️ תרומה / הוצאה קבועה</option><option value="income">💰 הכנסה קבועה</option></select></div>
+  <div class="form-group"><label class="form-label">סכום (₪) *</label><input class="form-input" id="mz-r-amt" type="number" min="0" step="0.01" placeholder="0.00"></div>
+  <div class="form-group"><label class="form-label">תיאור *</label><input class="form-input" id="mz-r-desc" type="text" placeholder="משכורת, תרומה חודשית לישיבה..."></div>
+  <div class="form-group"><label class="form-label">תדירות</label><select class="form-select" id="mz-r-freq">${Object.entries(MZ_FREQ).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
+  <div class="form-group"><label class="form-label">תאריך התחלה</label><input class="form-input" id="mz-r-start" type="date" value="${today()}"></div>
+  <div class="form-group"><div class="mz-row" style="margin-bottom:5px"><label class="form-label" style="margin:0">תאריך סיום</label>${mzTog('id="mz-r-has"', false)}</div><input class="form-input" id="mz-r-end" type="date" disabled style="opacity:.42"></div>
+  <div class="form-group"><label class="form-label">הערה</label><input class="form-input" id="mz-r-note" type="text" placeholder="פרטים..."></div>
+  <button class="btn btn-full" id="mz-r-save" style="background:#E65100;color:#fff">💾 שמירת רשומה קבועה</button></div></div>`;
 }
 function mzMatch(e) {
   const h = mzHist, q = h.q.trim().toLowerCase();
@@ -1715,45 +1722,45 @@ function mzMatch(e) {
 }
 function mzList() {
   const list = S.data.tithes.filter(mzMatch).sort((a, b) => b.date.localeCompare(a.date)), rate = mz().rate;
-  return `<p class="mut">${list.length ? list.length + ' רשומות' : ''}</p>` + (list.length ? list.map(e => { const inc = e.type === 'income', rec = !!e.recurringId;
-    return `<div class="card"><div class="row"><span>${rec ? '🔁' : inc ? '💰' : '🕊️'}</span><div class="sp"><b>${esc(e.description)}</b><div class="mut">${mzHebStr(e.date)} · ${mzGregStr(e.date)}${e.note ? ' · ' + esc(e.note) : ''}</div></div>
-    <div style="text-align:left"><b class="${inc ? 'good' : 'bad'}">${inc ? '+' : '-'}${fmt(e.amount)}</b>${inc ? `<div class="mut">מעשר: ${fmt(e.amount * rate)}</div>` : ''}</div>${canEdit() ? delBtn('tithes', e.id) : ''}</div></div>`; }).join('') : '<p class="mut">אין רשומות תואמות</p>');
+  return `<div class="result-count">${list.length ? list.length + ' רשומות' : ''}</div>` + (list.length ? `<div class="hist-list">${list.map(e => { const inc = e.type === 'income', rec = !!e.recurringId, k = rec ? 'rec' : inc ? 'inc' : 'pay';
+    return `<div class="hist-item${rec ? ' rec-item' : ''}"><div class="h-icon ${k}">${rec ? '🔁' : inc ? '💰' : '🕊️'}</div><div class="h-body"><div class="h-desc">${esc(e.description)}</div><div class="h-meta">${mzHebStr(e.date)} · ${mzGregStr(e.date)}${e.note ? ' · ' + esc(e.note) : ''}</div></div>
+    <div class="h-right"><div class="h-amt ${k}">${inc ? '+' : '-'}${fmt(e.amount)}</div>${inc ? `<span class="h-maaser">מעשר: ${fmt(e.amount * rate)}</span>` : ''}</div>${mzDel('tithes', e.id)}</div>`; }).join('')}</div>` : '<div class="empty"><div class="empty-icon">📭</div><div class="empty-txt">אין רשומות תואמות</div></div>');
 }
 function mzHistView() {
-  const h = mzHist, years = new Set(S.data.tithes.map(e => h.pft === 'hebrew' ? MH.fromISO(e.date).year : +e.date.slice(0, 4))), chip = (on, attr, l) => `<button class="chip ${on ? 'on' : ''}" ${attr}>${l}</button>`;
+  const h = mzHist, years = new Set(S.data.tithes.map(e => h.pft === 'hebrew' ? MH.fromISO(e.date).year : +e.date.slice(0, 4))), chip = (on, attr, l, cls = '') => `<button class="chip ${cls} ${on ? 'active' : ''}" ${attr}>${l}</button>`;
   let sel = '';
   if (h.pft !== 'none') {
-    sel = `<p class="mut">שנה</p>${[...years].sort((a, b) => b - a).map(y => chip(h.year === y, `data-mz-year="${y}"`, h.pft === 'hebrew' ? `${MH.num(y % 1000)} (${y})` : y)).join('')}`;
+    sel = `<div class="filter-label">שנה</div><div class="chip-row" style="margin-bottom:6px">${[...years].sort((a, b) => b - a).map(y => chip(h.year === y, `data-mz-year="${y}"`, h.pft === 'hebrew' ? `${MH.num(y % 1000)} (${y})` : y)).join('')}</div>`;
     if (h.year !== null) { const ms = new Set(S.data.tithes.map(e => h.pft === 'hebrew' ? MH.fromISO(e.date) : { year: +e.date.slice(0, 4), month: +e.date.slice(5, 7) }).filter(x => x.year === h.year).map(x => x.month));
-      sel += `<p class="mut">חודש</p>` + (h.pft === 'hebrew' ? MZ_CIVIL : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]).filter(m => ms.has(m)).map(m => chip(h.month === m, `data-mz-month="${m}"`, h.pft === 'hebrew' ? MZ_HM[m] : MZ_GM[m - 1])).join(''); }
+      sel += `<div class="filter-label">חודש</div><div class="chip-row">` + (h.pft === 'hebrew' ? MZ_CIVIL : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]).filter(m => ms.has(m)).map(m => chip(h.month === m, `data-mz-month="${m}"`, h.pft === 'hebrew' ? MZ_HM[m] : MZ_GM[m - 1])).join('') + '</div>'; }
   }
-  return `<div class="row">${[['all', 'הכל'], ['income', '💰 הכנסות'], ['payment', '🕊️ תרומות'], ['recurring', '🔁 קבועות']].map(([k, l]) => chip(h.tf === k, `data-mz-tf="${k}"`, l)).join('')}<span class="sp"></span><button class="b sec" id="mz-exp" title="יצוא">📄</button><button class="b sec" id="mz-imp" title="ייבוא">📥</button></div>
-  <input id="mz-q" placeholder="חיפוש לפי תיאור, הערה, תאריך..." value="${esc(h.q)}" style="margin:.6rem 0">
-  <div class="card"><b>סינון לפי תקופה</b><div>${[['none', 'ללא סינון'], ['hebrew', 'עברי'], ['greg', 'לועזי']].map(([k, l]) => chip(h.pft === k, `data-mz-pft="${k}"`, l)).join('')}</div>${sel}</div><div id="mz-list">${mzList()}</div>`;
+  return `<div class="hist-toolbar"><div class="chip-row" style="flex:1">${[['all', 'הכל', ''], ['income', '💰 הכנסות', ''], ['payment', '🕊️ תרומות', ''], ['recurring', '🔁 קבועות', 'org']].map(([k, l, c]) => chip(h.tf === k, `data-mz-tf="${k}"`, l, c)).join('')}</div><div class="io-btns"><button class="btn btn-sec btn-sm" id="mz-exp" title="יצוא">📄</button><button class="btn btn-sec btn-sm" id="mz-imp" title="ייבוא">📥</button></div></div>
+  <div class="search-wrap"><span class="search-icon">🔍</span><input class="form-input search-input" id="mz-q" type="text" placeholder="חיפוש לפי תיאור, הערה, תאריך..." value="${esc(h.q)}"></div>
+  <div class="filter-block"><div class="filter-label">סינון לפי תקופה</div><div class="chip-row" style="margin-bottom:6px">${[['none', 'ללא סינון'], ['hebrew', 'עברי'], ['greg', 'לועזי']].map(([k, l]) => chip(h.pft === k, `data-mz-pft="${k}"`, l)).join('')}</div>${sel}</div><div id="mz-list">${mzList()}</div>`;
 }
 function mzNotifView() {
-  const n = mz().notif, hol = MZ_HOL.map(h => `<div class="row" style="margin:.4rem 0"><label class="sw"><input type="checkbox" data-mz-hol="${h.id}" ${n.holidays[h.id].enabled ? 'checked' : ''}><span><b>${h.name}</b></span></label><span class="sp"></span>
-    <select data-mz-holb="${h.id}">${MZ_BEFORE.map(([v, l]) => `<option value="${v}" ${n.holidays[h.id].daysBefore === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`).join('');
-  return `<div class="card"><label class="sw"><input type="checkbox" id="mz-n-on" ${n.enabled ? 'checked' : ''}><span><b>🔔 התראות מערכת</b><small>שלח התראה כאשר יתרת המעשר גבוהה</small></span></label></div>
-  <div ${n.enabled ? '' : 'style="opacity:.45;pointer-events:none"'}><div class="card"><h2>⚙️ סף וזמן</h2><label>שלח כאשר יתרה גבוהה מ- (₪)</label><input id="mz-n-th" type="number" min="0" step="10" value="${n.threshold}">
-  <label>שעת שליחה</label><input id="mz-n-time" type="time" value="${esc(n.timeOfDay)}"><label>ביום ה- ___ לחודש</label><select id="mz-n-dom">${[1, 5, 10, 15, 20, 25].map(d => `<option ${n.dayOfMonth === d ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
-  <div class="card"><h2>📅 חודשים עבריים</h2>${MZ_CIVIL.map(m => `<button class="chip ${n.hebrewMonths.includes(m) ? 'on' : ''}" data-mz-hm="${m}">${MZ_HM[m]}</button>`).join('')}</div>
-  <div class="card"><h2>📅 חודשים לועזיים</h2>${MZ_GM.map((l, i) => `<button class="chip ${n.gregorianMonths.includes(i + 1) ? 'on' : ''}" data-mz-gm="${i + 1}">${l}</button>`).join('')}</div>
-  <div class="card"><h2>✡️ חגים ומועדים</h2><p class="mut">תזכורת לפני (או ביום) חג:</p>${hol}</div>
-  <div class="row"><button class="b sp" id="mz-n-save">💾 שמירה</button><button class="b sec" id="mz-n-test">🔍 בדוק היום</button></div>
-  <p class="mut">ההתראה נשלחת מהשרת לטלפון ולמייל של מי שמורשה לתקציב, פעם אחת בכל מועד. השעה נקבעת לפי תדירות הטיימר של האתר.</p></div>`;
+  const n = mz().notif, hol = MZ_HOL.map(h => `<div class="hol-card">${mzTog(`data-mz-hol="${h.id}"`, n.holidays[h.id].enabled)}<div class="hol-name">${h.name}</div>
+    <select class="form-select" data-mz-holb="${h.id}" style="width:auto;padding:3px 7px;font-size:.7em">${MZ_BEFORE.map(([v, l]) => `<option value="${v}" ${n.holidays[h.id].daysBefore === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`).join('');
+  return `<div class="notif-master"><div><div style="font-size:.88em;font-weight:700">🔔 התראות מערכת</div><div style="font-size:.68em;opacity:.6;margin-top:2px">שלח התראה כאשר יתרת המעשר גבוהה</div></div>${mzTog('id="mz-n-on"', n.enabled)}</div>
+  <div class="notif-sec ${n.enabled ? 'on' : ''}"><div class="card"><div class="card-title">⚙️ סף וזמן</div><div class="form-group"><label class="form-label">שלח כאשר יתרה גבוהה מ- (₪)</label><input class="form-input" id="mz-n-th" type="number" min="0" step="10" value="${n.threshold}"></div>
+  <div class="form-group"><label class="form-label">שעת שליחה</label><input class="form-input" id="mz-n-time" type="time" value="${esc(n.timeOfDay)}"></div><div class="form-group"><label class="form-label">ביום ה- ___ לחודש</label><select class="form-select" id="mz-n-dom">${[1, 5, 10, 15, 20, 25].map(d => `<option ${n.dayOfMonth === d ? 'selected' : ''}>${d}</option>`).join('')}</select></div></div>
+  <div class="card"><div class="card-title">📅 חודשים עבריים</div><div class="chip-row">${MZ_CIVIL.map(m => `<button class="chip ${n.hebrewMonths.includes(m) ? 'active' : ''}" data-mz-hm="${m}">${MZ_HM[m]}</button>`).join('')}</div></div>
+  <div class="card"><div class="card-title">📅 חודשים לועזיים</div><div class="chip-row">${MZ_GM.map((l, i) => `<button class="chip ${n.gregorianMonths.includes(i + 1) ? 'active' : ''}" data-mz-gm="${i + 1}">${l}</button>`).join('')}</div></div>
+  <div class="card"><div class="card-title">✡️ חגים ומועדים</div><div style="font-size:.68em;opacity:.6;margin-bottom:8px">תזכורת לפני (או ביום) חג:</div>${hol}</div>
+  <div class="mz-row"><button class="btn btn-pri" style="flex:1" id="mz-n-save">💾 שמור</button><button class="btn btn-sec" id="mz-n-test">🔍 בדוק היום</button></div>
+  <div style="font-size:.68em;opacity:.55;margin-top:8px;line-height:1.4">ההתראה נשלחת מהשרת לטלפון ולמייל של מי שמורשה לתקציב, פעם אחת בכל מועד. השעה נקבעת לפי תדירות הטיימר של האתר.</div></div>`;
 }
 function mzSetView() {
   const r = mz().rate, recs = S.data.titheRec;
-  return `<div class="card"><h2>שיעור המעשר</h2><div class="row"><button class="b ${r === .1 ? '' : 'sec'} sp" data-mz-rate="0.1">מעשר<br><small>10% מהכנסות</small></button><button class="b ${r === .2 ? '' : 'sec'} sp" data-mz-rate="0.2">חומש<br><small>20% מהכנסות</small></button></div></div>
-  <div class="card"><h2>פרטיות וקוד גישה</h2><p class="mut">הסתרת הסכומים (👁 בכותרת) וקוד הגישה פועלים על כל התקציב כולל המעשרות, ומגדירים אותם בלשונית "עוד".</p></div>
-  <div class="card"><h2>הכנסות ותרומות קבועות</h2>${recs.length ? recs.map(x => `<div class="row" style="margin:.4rem 0"><span>${x.type === 'income' ? '💰' : '🕊️'}🔁</span><div class="sp"><b>${esc(x.description)} · ${fmt(x.amount)}</b><div class="mut">${MZ_FREQ[x.frequency]} · ${x.endDate ? 'עד ' + mzGregStr(x.endDate) : 'ללא הגבלה'}</div></div><span class="chip">${x.active === false ? 'הסתיים' : 'פעיל'}</span>${canEdit() ? delBtn('titheRec', x.id) : ''}</div>`).join('') : '<p class="mut">אין רשומות קבועות</p>'}<p class="mut">להוספה: "הוספה" ← 🔁 קבועה</p></div>
-  ${canEdit() ? '<div class="card" style="border-color:var(--danger)"><h2 class="bad">⚠️ איפוס נתוני מעשרות</h2><p class="mut">מחיקת כל ההכנסות, התרומות והתרומות הקבועות של המעשרות (שאר התקציב לא נפגע). פעולה בלתי הפיכה.</p><button class="b red" id="mz-clear" style="width:100%">🗑️ מחק את כל נתוני המעשרות</button></div>' : ''}`;
+  return `<div class="settings-section"><div class="settings-sec-title">שיעור המעשר</div><div class="rate-grid"><button class="rate-btn ${r === .1 ? 'sel' : ''}" data-mz-rate="0.1">מעשר<small>10% מהכנסות</small></button><button class="rate-btn ${r === .2 ? 'sel' : ''}" data-mz-rate="0.2">חומש<small>20% מהכנסות</small></button></div></div><hr class="div">
+  <div class="settings-section"><div class="settings-sec-title">פרטיות וקוד גישה</div><div style="font-size:.72em;opacity:.65;line-height:1.4">הסתרת הסכומים (👁 בכותרת) וקוד הגישה פועלים על כל התקציב כולל המעשרות, ומגדירים אותם בלשונית "עוד".</div></div><hr class="div">
+  <div class="settings-section"><div class="settings-sec-title">הכנסות ותרומות קבועות</div>${recs.length ? recs.map(x => `<div class="rec-card${x.active === false ? ' ended' : ''}"><div style="flex-shrink:0">${x.type === 'income' ? '💰' : '🕊️'}🔁</div><div class="rec-body"><div class="rec-name">${esc(x.description)} · ${fmt(x.amount)}</div><div class="rec-meta">${MZ_FREQ[x.frequency]} · ${x.endDate ? 'עד ' + mzGregStr(x.endDate) : 'ללא הגבלה'}</div></div><span class="rec-status ${x.active === false ? 'ended' : 'active'}">${x.active === false ? 'הסתיים' : 'פעיל'}</span>${mzDel('titheRec', x.id)}</div>`).join('') : '<div class="empty" style="padding:10px"><div class="empty-txt">אין רשומות קבועות</div></div>'}<div style="font-size:.68em;opacity:.5;margin-top:4px">להוספה: "הוספה" ← 🔁 קבועה</div></div><hr class="div">
+  ${canEdit() ? '<div class="settings-section"><div class="settings-sec-title">אזור מסוכן</div><div class="danger-zone"><div class="danger-zone-title">⚠️ איפוס נתוני מעשרות</div><div class="danger-zone-sub">מחיקת כל ההכנסות, התרומות והרשומות הקבועות של המעשרות (שאר התקציב לא נפגע). פעולה בלתי הפיכה.</div><button class="btn btn-err btn-full" id="mz-clear">🗑️ מחק את כל נתוני המעשרות</button></div></div>' : ''}`;
 }
-V.maaser = () => { const sub = subTab.maaser || 'dash'; return mzNav(sub) + ({ dash: mzDash, add: mzAddView, hist: mzHistView, notif: mzNotifView, set: mzSetView }[sub] || mzDash)(); };
+V.maaser = () => { const sub = subTab.maaser || 'dash'; return `<div class="mz">${mzNav(sub)}<div class="mz-panel">${({ dash: mzDash, add: mzAddView, hist: mzHistView, notif: mzNotifView, set: mzSetView }[sub] || mzDash)()}</div></div>`; };
 function mzConfirm(msg) { return new Promise(res => { const m = modal(`<h2>${esc(msg)}</h2><div class="row"><button class="b red" id="y">כן</button><button class="b sec" id="n">לא</button></div>`); m.querySelector('#y').onclick = () => { m.remove(); res(true); }; m.querySelector('#n').onclick = () => { m.remove(); res(false); }; }); }
 function mzQuick() {
-  const m = modal(`<h2>⚡ תרומה מהירה</h2><label>סכום (₪)</label><input id="q-a" type="number" min="0" step="0.01" placeholder="0.00"><label>תיאור (אופציונלי)</label><input id="q-d" placeholder="צדקה, ישיבה, עניים..."><div class="row" style="margin-top:12px"><button class="b sp" id="q-ok">שלם / תרום ✓</button><button class="b sec" id="q-no">ביטול</button></div>`);
+  const m = modal(`<div class="mz"><div class="qp-title">⚡ תרומה מהירה</div><div class="form-group"><label class="form-label">סכום (₪)</label><input class="form-input" id="q-a" type="number" min="0" step="0.01" placeholder="0.00"></div><div class="form-group"><label class="form-label">תיאור (אופציונלי)</label><input class="form-input" id="q-d" type="text" placeholder="צדקה, ישיבה, עניים..."></div><button class="btn btn-pri btn-full" id="q-ok" style="padding:12px">שלם / תרום ✓</button><button class="btn btn-sec btn-full" id="q-no" style="margin-top:8px">ביטול</button></div>`);
   m.querySelector('#q-no').onclick = () => m.remove(); setTimeout(() => m.querySelector('#q-a').focus(), 100);
   m.querySelector('#q-ok').onclick = () => { const a = +m.querySelector('#q-a').value; if (!a || a <= 0) return toast('יש להזין סכום תקין'); put('tithes', { id: uid(), date: today(), type: 'payment', amount: mzR2(a), description: m.querySelector('#q-d').value.trim() || 'תשלום מעשר', note: '' }); m.remove(); render(); toast(`תרומה ${fmt(a)} נרשמה ✓`); };
 }
@@ -1770,7 +1777,7 @@ function bindMaaser() {
   const R = $('#app'), N = () => mz().notif;
   R.querySelectorAll('[data-mz-type]').forEach(b => b.onclick = () => { mzAdd = b.dataset.mzType; render(); });
   $('#mz-quick')?.addEventListener('click', mzQuick);
-  $('#mz-amt')?.addEventListener('input', e => { const p = $('#mz-prev'), a = +e.target.value; p.hidden = !(mzAdd === 'income' && a > 0); p.textContent = `↳ מעשר (${Math.round(mz().rate * 100)}%): ${fmt(a * mz().rate)}`; });
+  $('#mz-amt')?.addEventListener('input', e => { const p = $('#mz-prev'), a = +e.target.value; p.hidden = !(mzAdd === 'income' && a > 0); p.classList.toggle('vis', !p.hidden); p.textContent = `↳ מעשר (${Math.round(mz().rate * 100)}%): ${fmt(a * mz().rate)}`; });
   $('#mz-save')?.addEventListener('click', () => {
     const a = +$('#mz-amt').value, d = $('#mz-desc').value.trim(); if (!a || a <= 0) return toast('יש להזין סכום תקין'); if (!d) return toast('יש להזין תיאור');
     put('tithes', { id: uid(), date: $('#mz-date').value || today(), type: mzAdd, amount: mzR2(a), description: d, note: $('#mz-note').value.trim() });
