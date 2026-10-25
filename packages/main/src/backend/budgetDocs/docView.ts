@@ -1,6 +1,6 @@
 import { visibleDocs, type BudgetDoc } from './docSync';
 
-export const COLLECTIONS = ['plan', 'yearly', 'debts', 'accounts', 'tx', 'bizs', 'orders', 'bizExp', 'invoices', 'reminders', 'goals', 'assets', 'snaps', 'policies', 'rules', 'settings'];
+export const COLLECTIONS = ['plan', 'yearly', 'debts', 'accounts', 'tx', 'bizs', 'orders', 'bizExp', 'invoices', 'reminders', 'goals', 'assets', 'snaps', 'policies', 'rules', 'settings', 'tithes', 'titheRec'];
 
 export interface BatchOp {
   c: string;

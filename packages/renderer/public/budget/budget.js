@@ -50,7 +50,7 @@ const yearLabel = y => S.settings.calendar === 'heb' ? hebLabel(y) : String(y);
 const HEB_MONTHS = ['תשרי', 'חשון', 'כסלו', 'טבת', 'שבט', 'אדר', 'ניסן', 'אייר', 'סיון', 'תמוז', 'אב', 'אלול'];
 
 /* ---------- מצב ושמירה (השרת של האתר הראשי) ---------- */
-const COLL = ['plan', 'yearly', 'debts', 'accounts', 'tx', 'bizs', 'orders', 'bizExp', 'invoices', 'reminders', 'goals', 'assets', 'snaps', 'policies', 'rules'];
+const COLL = ['plan', 'yearly', 'debts', 'accounts', 'tx', 'bizs', 'orders', 'bizExp', 'invoices', 'reminders', 'goals', 'assets', 'snaps', 'policies', 'rules', 'tithes', 'titheRec'];
 const S = { settings: { family: '', calendar: 'heb', tithe: 10 }, data: Object.fromEntries(COLL.map(c => [c, []])) };
 let ready = false, pending = [], flushT = 0, flushing = false;
 const API = window.BUDGET_API;
@@ -126,7 +126,7 @@ async function pull(quiet) {
   if (!r.ok) throw { code: r.status }; const j = await r.json();
   if (quiet && ready && (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || '') || COLL.every(c => dataKey(S.data[c]) === dataKey(j[c])))) return;
   COLL.forEach(c => S.data[c] = j[c] || []); S.data.debts.filter(x => !x.del && !x.start).forEach(x => put('debts', { ...x, start: today().slice(0, 7) })); if (j.settings && j.settings.main) Object.assign(S.settings, j.settings.main);
-  ready = true; render(); loadPrime();
+  ready = true; mzProcess(); render(); loadPrime();
 }
 async function loadPrime() {
   try {
@@ -362,7 +362,7 @@ function bars(items, o = {}) { // items: [{l, vals:[..]}], series: [{n,c}]
 }
 
 /* ---------- מסכים ---------- */
-const TABS = [['home', '🏠', 'סקירה'], ['month', '📅', 'חודשי'], ['year', '🗓️', 'שנתי'], ['debts', '💳', 'חובות'], ['bank', '🏦', 'בנק'], ['txs', '🧾', 'תנועות'], ['cls', '🏷️', 'סיווג'], ['biz', '🎨', 'עסקים'], ['more', '⚙️', 'עוד']];
+const TABS = [['home', '🏠', 'סקירה'], ['month', '📅', 'חודשי'], ['year', '🗓️', 'שנתי'], ['debts', '💳', 'חובות'], ['bank', '🏦', 'בנק'], ['txs', '🧾', 'תנועות'], ['cls', '🏷️', 'סיווג'], ['biz', '🎨', 'עסקים'], ['maaser', '🌾', 'מעשרות'], ['more', '⚙️', 'עוד']];
 const V = {};
 // מה אמור היה להיכנס ולצאת עד היום (חודשים שיש בהם נתונים, וגם החודש הנוכחי) מול מה שנכנס ויצא
 // מה שהוזן בפועל לפריט שנתי באותה שנה (לפי שם הסעיף)
@@ -1610,6 +1610,202 @@ function mortgageImport() {
   };
 }
 
+/* ---------- מעשרות: ניהול מעשר וחומש (הועבר מתוסף "מעשר כספים" של אוצריא) ----------
+   הכנסות ותרומות נשמרות באוסף tithes, תרומות קבועות באוסף titheRec, וההגדרות ב-settings.maaser.
+   הסתרת סכומים וקוד גישה הם של התקציב כולו (העין בכותרת, והגדרות בלשונית "עוד"). */
+const MH = (() => { // לוח עברי (חישוב עצמאי, כמו בתוסף)
+  const EP = -1373427, mod = (a, b) => ((a % b) + b) % b, leap = y => mod(7 * y + 1, 19) < 7;
+  const ce = y => { const me = Math.floor((235 * y - 234) / 19), p = 12084 + 13753 * me; let d = 29 * me + Math.floor(p / 25920); if (mod(3 * (d + 1), 7) < 3) d++; return d; };
+  const yd = y => { if (y <= 1) return 0; const n0 = ce(y - 1), n1 = ce(y), n2 = ce(y + 1); if (n2 - n1 === 356) return 2; if (n1 - n0 === 382) return 1; return 0; };
+  const ny = y => EP + ce(y) + yd(y), ylen = y => ny(y + 1) - ny(y);
+  const md = (y, m) => [2, 4, 6, 10, 13].includes(m) ? 29 : m === 12 ? (leap(y) ? 30 : 29) : m === 8 ? (ylen(y) % 10 === 5 ? 30 : 29) : m === 9 ? (ylen(y) % 10 === 3 ? 29 : 30) : 30;
+  const toRD = (y, m, d) => { const lm = leap(y) ? 13 : 12; let days = 0; if (m < 7) { for (let i = 7; i <= lm; i++) days += md(y, i); for (let i = 1; i < m; i++) days += md(y, i); } else for (let i = 7; i < m; i++) days += md(y, i); return ny(y) + days + d - 1; };
+  const fromRD = rd => { let y = Math.floor((rd - EP) / 365.25) + 1; while (ny(y + 1) <= rd) y++; while (ny(y) > rd) y--; const order = [7, 8, 9, 10, 11, 12]; if (leap(y)) order.push(13); for (let i = 1; i <= 6; i++) order.push(i); let month = 7; for (const m of order) if (rd < toRD(y, m, 1) + md(y, m)) { month = m; break; } return { year: y, month, day: rd - toRD(y, month, 1) + 1 }; };
+  const gl = y => y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+  const gRD = (y, m, d) => { const p = y - 1; return 365 * p + Math.floor(p / 4) - Math.floor(p / 100) + Math.floor(p / 400) + Math.floor((367 * m - 362) / 12) + (m <= 2 ? 0 : gl(y) ? -1 : -2) + d; };
+  const toG = rd => { let y = Math.floor((rd - 1) / 365.25) + 1; while (gRD(y + 1, 1, 1) <= rd) y++; while (gRD(y, 1, 1) > rd) y--; const dpm = [31, gl(y) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]; let p = rd - gRD(y, 1, 1), m = 0; while (m < 12 && p >= dpm[m]) { p -= dpm[m]; m++; } return { year: y, month: m + 1, day: p + 1 }; };
+  const N = [[400, 'ת'], [300, 'ש'], [200, 'ר'], [100, 'ק'], [90, 'צ'], [80, 'פ'], [70, 'ע'], [60, 'ס'], [50, 'נ'], [40, 'מ'], [30, 'ל'], [20, 'כ'], [10, 'י'], [9, 'ט'], [8, 'ח'], [7, 'ז'], [6, 'ו'], [5, 'ה'], [4, 'ד'], [3, 'ג'], [2, 'ב'], [1, 'א']];
+  const num = n => { if (n <= 0 || n >= 10000) return String(n); let rem = n, res = ''; for (const [v, l] of N) while (rem >= v) { if (v === 10 && rem % 100 === 15) { res += 'טו'; rem -= 15; continue; } if (v === 10 && rem % 100 === 16) { res += 'טז'; rem -= 16; continue; } res += l; rem -= v; } return res.length === 1 ? res + '׳' : res.slice(0, -1) + '״' + res.slice(-1); };
+  const isoRD = iso => { const [y, m, d] = iso.split('-').map(Number); return gRD(y, m, d); };
+  const rdISO = rd => { const g = toG(rd); return `${g.year}-${String(g.month).padStart(2, '0')}-${String(g.day).padStart(2, '0')}`; };
+  return { leap, md, toRD, fromRD, gRD, toG, num, isoRD, rdISO, fromISO: iso => fromRD(isoRD(iso)) };
+})();
+const MZ_HM = { 1: 'ניסן', 2: 'אייר', 3: 'סיוון', 4: 'תמוז', 5: 'אב', 6: 'אלול', 7: 'תשרי', 8: 'חשוון', 9: 'כסלו', 10: 'טבת', 11: 'שבט', 12: 'אדר', 13: 'אדר ב׳' };
+const MZ_CIVIL = [7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6];
+const MZ_GM = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+const MZ_HOL = [{ id: 'rosh_hashana', name: 'ראש השנה', month: 7, day: 1 }, { id: 'yom_kippur', name: 'יום כיפור', month: 7, day: 10 }, { id: 'sukkot', name: 'סוכות', month: 7, day: 15 }, { id: 'pesach', name: 'פסח', month: 1, day: 15 }, { id: 'shavuot', name: 'שבועות', month: 3, day: 6 }];
+const MZ_BEFORE = [[0, 'ביום עצמו'], [1, 'יום לפני'], [3, '3 ימים'], [7, 'שבוע'], [14, 'שבועיים'], [30, 'חודש לפני']];
+const MZ_FREQ = { monthly: 'חודשי', weekly: 'שבועי', yearly: 'שנתי' };
+const mzHebStr = iso => { const h = MH.fromISO(iso); return `${MH.num(h.day)} ${MZ_HM[h.month]} ${MH.num(h.year % 1000)}`; };
+const mzGregStr = iso => new Date(iso + 'T12:00:00').toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' });
+const mzNotifDef = () => ({ enabled: false, threshold: 100, timeOfDay: '09:00', dayOfMonth: 1, hebrewMonths: [], gregorianMonths: [], holidays: Object.fromEntries(MZ_HOL.map(h => [h.id, { enabled: false, daysBefore: 0 }])) });
+function mz() {
+  const s = S.settings; if (!s.maaser) s.maaser = {}; const m = s.maaser;
+  if (typeof m.rate !== 'number') m.rate = .1;
+  m.notif = { ...mzNotifDef(), ...(m.notif || {}) }; m.notif.holidays = { ...mzNotifDef().holidays, ...m.notif.holidays };
+  return m;
+}
+let mzAdd = 'income', mzHist = { tf: 'all', q: '', pft: 'none', year: null, month: null };
+function mzTotals() {
+  let inc = 0, paid = 0; S.data.tithes.forEach(e => { if (e.type === 'income') inc += +e.amount; if (e.type === 'payment') paid += +e.amount; });
+  const oblig = inc * mz().rate, bal = Math.max(0, oblig - paid);
+  return { inc, paid, oblig, bal, extra: Math.max(0, paid - oblig), pct: oblig > 0 ? Math.min(100, paid / oblig * 100) : 0 };
+}
+const mzR2 = n => Math.round(n * 100) / 100;
+function mzNext(rec, fromISO) { // המועד הבא של תרומה קבועה אחרי מועד נתון
+  const [y, m, d] = fromISO.split('-').map(Number), [sy, sm, sd] = rec.startDate.split('-').map(Number);
+  const dim = (yy, mm) => new Date(Date.UTC(yy, mm, 0)).getUTCDate(), iso = (yy, mm, dd) => `${yy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+  if (rec.frequency === 'weekly') return new Date(Date.UTC(y, m - 1, d + 7)).toISOString().slice(0, 10);
+  if (rec.frequency === 'monthly') { const ny = m === 12 ? y + 1 : y, nm = m === 12 ? 1 : m + 1; return iso(ny, nm, Math.min(sd, dim(ny, nm))); }
+  return iso(y + 1, sm, Math.min(sd, dim(y + 1, sm)));
+}
+function mzProcess() { // רושם תרומה לכל מועד קבוע שהגיע. המזהה נגזר מהמועד, ולכן שני מכשירים לא יוצרים כפילות
+  const t = today(); let n = 0;
+  for (const rec of S.data.titheRec.filter(r => r.active !== false)) {
+    let cur = rec.lastProcessed ? mzNext(rec, rec.lastProcessed) : rec.startDate, guard = 0, changed = false, r = { ...rec };
+    while (cur <= t && guard++ < 1000) {
+      if (r.endDate && cur > r.endDate) { r.active = false; changed = true; break; }
+      const id = 'm-' + rec.id + '-' + cur;
+      if (!S.data.tithes.some(e => e.id === id)) { put('tithes', { id, date: cur, type: 'payment', amount: +rec.amount, description: rec.description, note: `תרומה קבועה (${MZ_FREQ[rec.frequency]})`, recurringId: rec.id }); n++; }
+      r.lastProcessed = cur; changed = true; cur = mzNext(rec, cur);
+    }
+    if (r.endDate && r.lastProcessed && mzNext(rec, r.lastProcessed) > r.endDate && r.active !== false) { r.active = false; changed = true; }
+    if (changed) put('titheRec', r);
+  }
+  if (n) toast(n + ' תרומות קבועות נרשמו');
+}
+function mzTodayLabel() { // האם היום מוגדרת התראה: מחזיר את שם האירוע, או null
+  const n = mz().notif, t = today(), h = MH.fromISO(t), rd = MH.isoRD(t), [, gm, gd] = t.split('-').map(Number), dom = n.dayOfMonth || 1;
+  if (n.hebrewMonths.includes(h.month) && h.day === dom) return MZ_HM[h.month];
+  if (n.gregorianMonths.includes(gm) && gd === dom) return MZ_GM[gm - 1];
+  for (const [id, cfg] of Object.entries(n.holidays)) {
+    if (!cfg.enabled) continue; const hol = MZ_HOL.find(x => x.id === id); if (!hol) continue;
+    const b = cfg.daysBefore || 0;
+    if ([h.year, h.year - 1].some(y => MH.toRD(y, hol.month, hol.day) - b === rd)) return b > 0 ? `${b} ימים לפני ${hol.name}` : hol.name;
+  }
+  return null;
+}
+function mzNav(sub) { return `<div class="tabs">${[['dash', '📊 סיכום'], ['add', '➕ הוספה'], ['hist', '🕘 היסטוריה'], ['notif', '🔔 התראות'], ['set', '⚙️ הגדרות']].map(([k, l]) => `<button class="${k === sub ? 'on' : ''}" data-sub="maaser:${k}">${l}</button>`).join('')}</div>`; }
+function mzDash() {
+  const { inc, paid, oblig, bal, extra, pct } = mzTotals(), pc = Math.round(mz().rate * 100);
+  return `<div class="grid"><div class="kpi"><small>סה"כ הכנסות</small><strong>${fmt(inc)}</strong></div><div class="kpi"><small>חובת מעשר (${pc}%)</small><strong>${fmt(oblig)}</strong></div>
+  <div class="kpi"><small>שולם עד כה</small><strong>${fmt(paid)}</strong></div><div class="kpi"><small>יתרה לתשלום</small><strong class="${bal > 0 ? 'bad' : 'good'}">${fmt(bal)}</strong>${extra > 0 ? `<small>עודף ${fmt(extra)} למעשר הבא ✓</small>` : ''}</div></div>
+  <div class="card"><div class="row"><b>התקדמות תשלום המעשר</b><span class="sp"></span><b>${pct >= 100 ? '✓ שולם' : Math.round(pct) + '%'}</b></div><div class="bar" style="margin-top:.5rem"><i style="width:${pct.toFixed(1)}%;${pct >= 100 ? 'background:var(--good)' : ''}"></i></div></div>
+  ${canEdit() ? '<button class="b" id="mz-quick" style="width:100%;padding:.8rem">⚡ תרומה מהירה</button>' : ''}`;
+}
+function mzAddView() {
+  const rate = Math.round(mz().rate * 100);
+  return `<div class="card"><div class="tabs">${[['income', '💰 הכנסה'], ['payment', '🕊️ תרומה'], ['recurring', '🔁 קבועה']].map(([k, l]) => `<button class="${k === mzAdd ? 'on' : ''}" data-mz-type="${k}">${l}</button>`).join('')}</div>
+  <div id="mz-one" ${mzAdd === 'recurring' ? 'hidden' : ''}><label>סכום (₪) *</label><input id="mz-amt" type="number" min="0" step="0.01" placeholder="0.00"><p class="mut" id="mz-prev" hidden></p>
+  <label>תיאור *</label><input id="mz-desc" placeholder="משכורת או תרומה..."><label>תאריך</label><input id="mz-date" type="date" value="${today()}"><label>הערה</label><textarea id="mz-note" rows="2" placeholder="פרטים נוספים..."></textarea>
+  <button class="b" id="mz-save" data-rate="${rate}" style="margin-top:.8rem;width:100%">💾 שמירה</button></div>
+  <div id="mz-rec" ${mzAdd === 'recurring' ? '' : 'hidden'}><label>סכום (₪) *</label><input id="mz-r-amt" type="number" min="0" step="0.01" placeholder="0.00"><label>תיאור *</label><input id="mz-r-desc" placeholder="תרומה חודשית לישיבה...">
+  <label>תדירות</label><select id="mz-r-freq">${Object.entries(MZ_FREQ).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select><label>תאריך התחלה</label><input id="mz-r-start" type="date" value="${today()}">
+  <label class="sw"><input type="checkbox" id="mz-r-has"><span><b>תאריך סיום</b></span></label><input id="mz-r-end" type="date" disabled><label>הערה</label><input id="mz-r-note" placeholder="פרטים...">
+  <button class="b" id="mz-r-save" style="margin-top:.8rem;width:100%">💾 שמירת תרומה קבועה</button></div></div>`;
+}
+function mzMatch(e) {
+  const h = mzHist, q = h.q.trim().toLowerCase();
+  if (h.tf === 'recurring' ? !e.recurringId : h.tf !== 'all' && (e.type !== h.tf || e.recurringId)) return false;
+  if (h.pft !== 'none' && h.year !== null) {
+    if (h.pft === 'hebrew') { const x = MH.fromISO(e.date); if (x.year !== h.year || (h.month !== null && x.month !== h.month)) return false; }
+    else { const [y, m] = e.date.split('-').map(Number); if (y !== h.year || (h.month !== null && m !== h.month)) return false; }
+  }
+  return !q || e.description.toLowerCase().includes(q) || (e.note || '').toLowerCase().includes(q) || e.date.includes(q) || mzHebStr(e.date).includes(h.q.trim()) || mzGregStr(e.date).includes(h.q.trim());
+}
+function mzList() {
+  const list = S.data.tithes.filter(mzMatch).sort((a, b) => b.date.localeCompare(a.date)), rate = mz().rate;
+  return `<p class="mut">${list.length ? list.length + ' רשומות' : ''}</p>` + (list.length ? list.map(e => { const inc = e.type === 'income', rec = !!e.recurringId;
+    return `<div class="card"><div class="row"><span>${rec ? '🔁' : inc ? '💰' : '🕊️'}</span><div class="sp"><b>${esc(e.description)}</b><div class="mut">${mzHebStr(e.date)} · ${mzGregStr(e.date)}${e.note ? ' · ' + esc(e.note) : ''}</div></div>
+    <div style="text-align:left"><b class="${inc ? 'good' : 'bad'}">${inc ? '+' : '-'}${fmt(e.amount)}</b>${inc ? `<div class="mut">מעשר: ${fmt(e.amount * rate)}</div>` : ''}</div>${canEdit() ? delBtn('tithes', e.id) : ''}</div></div>`; }).join('') : '<p class="mut">אין רשומות תואמות</p>');
+}
+function mzHistView() {
+  const h = mzHist, years = new Set(S.data.tithes.map(e => h.pft === 'hebrew' ? MH.fromISO(e.date).year : +e.date.slice(0, 4))), chip = (on, attr, l) => `<button class="chip ${on ? 'on' : ''}" ${attr}>${l}</button>`;
+  let sel = '';
+  if (h.pft !== 'none') {
+    sel = `<p class="mut">שנה</p>${[...years].sort((a, b) => b - a).map(y => chip(h.year === y, `data-mz-year="${y}"`, h.pft === 'hebrew' ? `${MH.num(y % 1000)} (${y})` : y)).join('')}`;
+    if (h.year !== null) { const ms = new Set(S.data.tithes.map(e => h.pft === 'hebrew' ? MH.fromISO(e.date) : { year: +e.date.slice(0, 4), month: +e.date.slice(5, 7) }).filter(x => x.year === h.year).map(x => x.month));
+      sel += `<p class="mut">חודש</p>` + (h.pft === 'hebrew' ? MZ_CIVIL : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]).filter(m => ms.has(m)).map(m => chip(h.month === m, `data-mz-month="${m}"`, h.pft === 'hebrew' ? MZ_HM[m] : MZ_GM[m - 1])).join(''); }
+  }
+  return `<div class="row">${[['all', 'הכל'], ['income', '💰 הכנסות'], ['payment', '🕊️ תרומות'], ['recurring', '🔁 תרומות קבועות']].map(([k, l]) => chip(h.tf === k, `data-mz-tf="${k}"`, l)).join('')}<span class="sp"></span><button class="b sec" id="mz-exp" title="יצוא">📄</button><button class="b sec" id="mz-imp" title="ייבוא">📥</button></div>
+  <input id="mz-q" placeholder="חיפוש לפי תיאור, הערה, תאריך..." value="${esc(h.q)}" style="margin:.6rem 0">
+  <div class="card"><b>סינון לפי תקופה</b><div>${[['none', 'ללא סינון'], ['hebrew', 'עברי'], ['greg', 'לועזי']].map(([k, l]) => chip(h.pft === k, `data-mz-pft="${k}"`, l)).join('')}</div>${sel}</div><div id="mz-list">${mzList()}</div>`;
+}
+function mzNotifView() {
+  const n = mz().notif, hol = MZ_HOL.map(h => `<div class="row" style="margin:.4rem 0"><label class="sw"><input type="checkbox" data-mz-hol="${h.id}" ${n.holidays[h.id].enabled ? 'checked' : ''}><span><b>${h.name}</b></span></label><span class="sp"></span>
+    <select data-mz-holb="${h.id}">${MZ_BEFORE.map(([v, l]) => `<option value="${v}" ${n.holidays[h.id].daysBefore === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`).join('');
+  return `<div class="card"><label class="sw"><input type="checkbox" id="mz-n-on" ${n.enabled ? 'checked' : ''}><span><b>🔔 התראות מערכת</b><small>שלח התראה כאשר יתרת המעשר גבוהה</small></span></label></div>
+  <div ${n.enabled ? '' : 'style="opacity:.45;pointer-events:none"'}><div class="card"><h2>⚙️ סף וזמן</h2><label>שלח כאשר יתרה גבוהה מ- (₪)</label><input id="mz-n-th" type="number" min="0" step="10" value="${n.threshold}">
+  <label>שעת שליחה</label><input id="mz-n-time" type="time" value="${esc(n.timeOfDay)}"><label>ביום ה- ___ לחודש</label><select id="mz-n-dom">${[1, 5, 10, 15, 20, 25].map(d => `<option ${n.dayOfMonth === d ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
+  <div class="card"><h2>📅 חודשים עבריים</h2>${MZ_CIVIL.map(m => `<button class="chip ${n.hebrewMonths.includes(m) ? 'on' : ''}" data-mz-hm="${m}">${MZ_HM[m]}</button>`).join('')}</div>
+  <div class="card"><h2>📅 חודשים לועזיים</h2>${MZ_GM.map((l, i) => `<button class="chip ${n.gregorianMonths.includes(i + 1) ? 'on' : ''}" data-mz-gm="${i + 1}">${l}</button>`).join('')}</div>
+  <div class="card"><h2>✡️ חגים ומועדים</h2><p class="mut">תזכורת לפני (או ביום) חג:</p>${hol}</div>
+  <div class="row"><button class="b sp" id="mz-n-save">💾 שמירה</button><button class="b sec" id="mz-n-test">🔍 בדוק היום</button></div>
+  <p class="mut">ההתראה נשלחת מהשרת לטלפון ולמייל של מי שמורשה לתקציב, פעם אחת בכל מועד. השעה נקבעת לפי תדירות הטיימר של האתר.</p></div>`;
+}
+function mzSetView() {
+  const r = mz().rate, recs = S.data.titheRec;
+  return `<div class="card"><h2>שיעור המעשר</h2><div class="row"><button class="b ${r === .1 ? '' : 'sec'} sp" data-mz-rate="0.1">מעשר<br><small>10% מהכנסות</small></button><button class="b ${r === .2 ? '' : 'sec'} sp" data-mz-rate="0.2">חומש<br><small>20% מהכנסות</small></button></div></div>
+  <div class="card"><h2>פרטיות וקוד גישה</h2><p class="mut">הסתרת הסכומים (👁 בכותרת) וקוד הגישה פועלים על כל התקציב כולל המעשרות, ומגדירים אותם בלשונית "עוד".</p></div>
+  <div class="card"><h2>תרומות קבועות</h2>${recs.length ? recs.map(x => `<div class="row" style="margin:.4rem 0"><span>🔁</span><div class="sp"><b>${esc(x.description)} · ${fmt(x.amount)}</b><div class="mut">${MZ_FREQ[x.frequency]} · ${x.endDate ? 'עד ' + mzGregStr(x.endDate) : 'ללא הגבלה'}</div></div><span class="chip">${x.active === false ? 'הסתיים' : 'פעיל'}</span>${canEdit() ? delBtn('titheRec', x.id) : ''}</div>`).join('') : '<p class="mut">אין תרומות קבועות</p>'}<p class="mut">להוספה: "הוספה" ← 🔁 קבועה</p></div>
+  ${canEdit() ? '<div class="card" style="border-color:var(--danger)"><h2 class="bad">⚠️ איפוס נתוני מעשרות</h2><p class="mut">מחיקת כל ההכנסות, התרומות והתרומות הקבועות של המעשרות (שאר התקציב לא נפגע). פעולה בלתי הפיכה.</p><button class="b red" id="mz-clear" style="width:100%">🗑️ מחק את כל נתוני המעשרות</button></div>' : ''}`;
+}
+V.maaser = () => { const sub = subTab.maaser || 'dash'; return mzNav(sub) + ({ dash: mzDash, add: mzAddView, hist: mzHistView, notif: mzNotifView, set: mzSetView }[sub] || mzDash)(); };
+function mzConfirm(msg) { return new Promise(res => { const m = modal(`<h2>${esc(msg)}</h2><div class="row"><button class="b red" id="y">כן</button><button class="b sec" id="n">לא</button></div>`); m.querySelector('#y').onclick = () => { m.remove(); res(true); }; m.querySelector('#n').onclick = () => { m.remove(); res(false); }; }); }
+function mzQuick() {
+  const m = modal(`<h2>⚡ תרומה מהירה</h2><label>סכום (₪)</label><input id="q-a" type="number" min="0" step="0.01" placeholder="0.00"><label>תיאור (אופציונלי)</label><input id="q-d" placeholder="צדקה, ישיבה, עניים..."><div class="row" style="margin-top:12px"><button class="b sp" id="q-ok">שלם / תרום ✓</button><button class="b sec" id="q-no">ביטול</button></div>`);
+  m.querySelector('#q-no').onclick = () => m.remove(); setTimeout(() => m.querySelector('#q-a').focus(), 100);
+  m.querySelector('#q-ok').onclick = () => { const a = +m.querySelector('#q-a').value; if (!a || a <= 0) return toast('יש להזין סכום תקין'); put('tithes', { id: uid(), date: today(), type: 'payment', amount: mzR2(a), description: m.querySelector('#q-d').value.trim() || 'תשלום מעשר', note: '' }); m.remove(); render(); toast(`תרומה ${fmt(a)} נרשמה ✓`); };
+}
+function mzImport(j) {
+  if (!j || !Array.isArray(j.entries)) throw new Error('חסר שדה entries');
+  const have = new Set(S.data.tithes.map(e => e.id)), haveR = new Set(S.data.titheRec.map(r => r.id)); let n = 0;
+  j.entries.filter(e => e && e.id && e.date && e.description && +e.amount > 0 && (e.type === 'income' || e.type === 'payment') && !have.has(String(e.id))).forEach(e => { put('tithes', { id: String(e.id), date: e.date, type: e.type, amount: +e.amount, description: String(e.description), note: e.note || '', ...(e.recurringId ? { recurringId: String(e.recurringId) } : {}) }); n++; });
+  (Array.isArray(j.recurring) ? j.recurring : []).filter(r => r && r.id && !haveR.has(String(r.id)) && r.startDate && MZ_FREQ[r.frequency]).forEach(r => put('titheRec', { id: String(r.id), description: String(r.description || ''), amount: +r.amount || 0, frequency: r.frequency, startDate: r.startDate, endDate: r.endDate || null, lastProcessed: r.lastProcessed || null, active: r.active !== false, note: r.note || '' }));
+  if (typeof j.rate === 'number' && (j.rate === .1 || j.rate === .2)) mz().rate = j.rate;
+  if (j.notif && typeof j.notif === 'object') { const { scheduledIds, ...nt } = j.notif; mz().notif = { ...mz().notif, ...nt }; }
+  save(); return n;
+}
+function bindMaaser() {
+  const R = $('#app'), N = () => mz().notif;
+  R.querySelectorAll('[data-mz-type]').forEach(b => b.onclick = () => { mzAdd = b.dataset.mzType; render(); });
+  $('#mz-quick')?.addEventListener('click', mzQuick);
+  $('#mz-amt')?.addEventListener('input', e => { const p = $('#mz-prev'), a = +e.target.value; p.hidden = !(mzAdd === 'income' && a > 0); p.textContent = `↳ מעשר (${Math.round(mz().rate * 100)}%): ${fmt(a * mz().rate)}`; });
+  $('#mz-save')?.addEventListener('click', () => {
+    const a = +$('#mz-amt').value, d = $('#mz-desc').value.trim(); if (!a || a <= 0) return toast('יש להזין סכום תקין'); if (!d) return toast('יש להזין תיאור');
+    put('tithes', { id: uid(), date: $('#mz-date').value || today(), type: mzAdd, amount: mzR2(a), description: d, note: $('#mz-note').value.trim() });
+    subTab.maaser = 'dash'; render(); toast(`${mzAdd === 'income' ? 'הכנסה' : 'תרומה'} ${fmt(a)} נשמרה ✓`);
+  });
+  $('#mz-r-has')?.addEventListener('change', e => { $('#mz-r-end').disabled = !e.target.checked; });
+  $('#mz-r-save')?.addEventListener('click', () => {
+    const a = +$('#mz-r-amt').value, d = $('#mz-r-desc').value.trim(), start = $('#mz-r-start').value || today(), end = $('#mz-r-has').checked ? $('#mz-r-end').value : '';
+    if (!a || a <= 0) return toast('יש להזין סכום'); if (!d) return toast('יש להזין תיאור'); if (end && end < start) return toast('תאריך סיום לפני התחלה');
+    put('titheRec', { id: uid(), description: d, amount: mzR2(a), frequency: $('#mz-r-freq').value, startDate: start, endDate: end || null, lastProcessed: null, active: true, note: $('#mz-r-note').value.trim() });
+    mzProcess(); subTab.maaser = 'set'; render(); toast('תרומה קבועה נוספה ✓');
+  });
+  R.querySelectorAll('[data-mz-tf]').forEach(b => b.onclick = () => { mzHist.tf = b.dataset.mzTf; render(); });
+  R.querySelectorAll('[data-mz-pft]').forEach(b => b.onclick = () => { Object.assign(mzHist, { pft: b.dataset.mzPft, year: null, month: null }); render(); });
+  R.querySelectorAll('[data-mz-year]').forEach(b => b.onclick = () => { const y = +b.dataset.mzYear; mzHist.year = mzHist.year === y ? null : y; mzHist.month = null; render(); });
+  R.querySelectorAll('[data-mz-month]').forEach(b => b.onclick = () => { const m = +b.dataset.mzMonth; mzHist.month = mzHist.month === m ? null : m; render(); });
+  $('#mz-q')?.addEventListener('input', e => { mzHist.q = e.target.value; $('#mz-list').innerHTML = mzList(); });
+  $('#mz-exp')?.addEventListener('click', () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ version: 4, exportDate: today(), rate: mz().rate, entries: S.data.tithes, recurring: S.data.titheRec, notif: mz().notif }, null, 2)], { type: 'application/json' })); a.download = `maaser_${today()}.json`; a.click(); toast('יוצא בהצלחה ✓'); });
+  $('#mz-imp')?.addEventListener('click', () => { const f = document.createElement('input'); f.type = 'file'; f.accept = '.json'; f.onchange = async () => { try { const n = mzImport(JSON.parse(await f.files[0].text())); mzProcess(); render(); toast(`ייבוא הצליח ✓ (${n} רשומות)`); } catch (x) { toast('קובץ לא תקין'); } }; f.click(); });
+  R.querySelectorAll('[data-mz-rate]').forEach(b => b.onclick = () => { mz().rate = +b.dataset.mzRate; save(); render(); });
+  $('#mz-clear')?.addEventListener('click', async () => { if (!await mzConfirm('למחוק את כל נתוני המעשרות? אי אפשר לשחזר.')) return; [...S.data.tithes].forEach(x => remove('tithes', x.id)); [...S.data.titheRec].forEach(x => remove('titheRec', x.id)); render(); toast('נתוני המעשרות נמחקו'); });
+  const tog = (k, v) => { const a = N()[k], i = a.indexOf(v); i >= 0 ? a.splice(i, 1) : a.push(v); save(); render(); };
+  R.querySelectorAll('[data-mz-hm]').forEach(b => b.onclick = () => tog('hebrewMonths', +b.dataset.mzHm));
+  R.querySelectorAll('[data-mz-gm]').forEach(b => b.onclick = () => tog('gregorianMonths', +b.dataset.mzGm));
+  $('#mz-n-on')?.addEventListener('change', e => { N().enabled = e.target.checked; save(); render(); });
+  $('#mz-n-save')?.addEventListener('click', () => {
+    const n = N(); n.threshold = parseFloat($('#mz-n-th').value) || 100; n.timeOfDay = $('#mz-n-time').value || '09:00'; n.dayOfMonth = +$('#mz-n-dom').value || 1;
+    MZ_HOL.forEach(h => { n.holidays[h.id] = { enabled: $(`[data-mz-hol="${h.id}"]`).checked, daysBefore: +$(`[data-mz-holb="${h.id}"]`).value || 0 }; }); save(); toast('נשמר ✓');
+  });
+  $('#mz-n-test')?.addEventListener('click', () => {
+    const n = N(); if (!n.enabled) return toast('התראות כבויות'); const { bal } = mzTotals(); if (bal < n.threshold) return toast(`יתרה ${fmt(bal)} נמוכה מהסף`);
+    const l = mzTodayLabel(); toast(l ? `🔔 יתרה ${fmt(bal)} — ${l}` : 'היום לא מוגדרת התראה');
+  });
+}
+
 /* ---------- ציור ---------- */
 /* ---------- נעילה בקוד: מסתירה את התקציב ממי שנמצא ליד המסך (הקוד נשמר כגיבוב, לא גלוי) ---------- */
 async function pinHash(pin) {
@@ -1642,6 +1838,7 @@ function render() {
 function bind() {
   const R = $('#app');
   if (tab === 'more' && !SYNC && !healthTried) { healthTried = true; syncLoad().then(() => render()); }
+  if (tab === 'maaser') bindMaaser();
   if (tab === 'txs') bindTxs();
   if (tab === 'cls') bindCls();
   if (tab === 'cats') bindCats();
