@@ -76,3 +76,8 @@
 /* עיצוב האתר צובע כל כפתור בצבע טקסט של כפתור ראשי (!important); כאן כפתורים בהירים מקבלים טקסט כהה כדי שלא ייעלמו */
 #app .dd{cursor:pointer;color:inherit;text-decoration:underline dotted;text-underline-offset:4px;border-radius:4px;padding:0 2px}#app .dd:hover,#app .dd:focus-visible{background:var(--soft,#eee)}
 .amt{display:inline-block;position:relative}body.priv-on .amt{color:transparent!important;user-select:none}body.priv-on .amt::after{content:'••••';position:absolute;top:0;left:50%;transform:translateX(-50%);white-space:nowrap;line-height:inherit;color:var(--text,#222);letter-spacing:1px}
+.sw{display:flex;gap:10px;align-items:flex-start;padding:10px;margin:6px 0;border:1px solid var(--line,#ddd);border-radius:10px;cursor:pointer}
+.sw input{margin-top:4px;width:auto;flex:none}.sw span{display:flex;flex-direction:column}.sw small{opacity:.7}
+.sw-row{display:flex;gap:8px;align-items:center;margin:6px 0}.sw-row span{flex:1}
+.sw b,.sw small{display:block}.sw small{font-size:13px;margin-top:2px}.sw{margin-bottom:8px}
+.card label.sw{display:flex!important;flex-direction:row}
