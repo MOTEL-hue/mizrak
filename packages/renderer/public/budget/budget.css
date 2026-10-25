@@ -64,6 +64,7 @@
 
 /* חלון כללי הסיווג: רחב, עם שדות גדולים וקריאים */
 .modal.wide>div{max-width:900px}
+.modal input,.modal select,.modal textarea{width:100%;box-sizing:border-box}.modal input[type=checkbox],.modal input[type=radio]{width:auto}
 #rl-body input,#rl-body select{font-size:1rem;padding:.65rem .75rem;width:100%;box-sizing:border-box}
 #rl-body button{min-height:44px;white-space:nowrap}
 #rl-body .rl-form{display:grid;grid-template-columns:2fr 2fr auto;gap:8px;align-items:center;margin:8px 0}

@@ -1666,13 +1666,13 @@ function mzProcess() { // רושם תרומה לכל מועד קבוע שהגי�
     while (cur <= t && guard++ < 1000) {
       if (r.endDate && cur > r.endDate) { r.active = false; changed = true; break; }
       const id = 'm-' + rec.id + '-' + cur;
-      if (!S.data.tithes.some(e => e.id === id)) { put('tithes', { id, date: cur, type: 'payment', amount: +rec.amount, description: rec.description, note: `תרומה קבועה (${MZ_FREQ[rec.frequency]})`, recurringId: rec.id }); n++; }
+      if (!S.data.tithes.some(e => e.id === id)) { put('tithes', { id, date: cur, type: rec.type === 'income' ? 'income' : 'payment', amount: +rec.amount, description: rec.description, note: `${rec.type === 'income' ? 'הכנסה' : 'תרומה'} קבועה (${MZ_FREQ[rec.frequency]})`, recurringId: rec.id }); n++; }
       r.lastProcessed = cur; changed = true; cur = mzNext(rec, cur);
     }
     if (r.endDate && r.lastProcessed && mzNext(rec, r.lastProcessed) > r.endDate && r.active !== false) { r.active = false; changed = true; }
     if (changed) put('titheRec', r);
   }
-  if (n) toast(n + ' תרומות קבועות נרשמו');
+  if (n) toast(n + ' רשומות קבועות נרשמו');
 }
 function mzTodayLabel() { // האם היום מוגדרת התראה: מחזיר את שם האירוע, או null
   const n = mz().notif, t = today(), h = MH.fromISO(t), rd = MH.isoRD(t), [, gm, gd] = t.split('-').map(Number), dom = n.dayOfMonth || 1;
@@ -1695,11 +1695,11 @@ function mzDash() {
 }
 function mzAddView() {
   const rate = Math.round(mz().rate * 100);
-  return `<div class="card"><div class="tabs">${[['income', '💰 הכנסה'], ['payment', '🕊️ תרומה'], ['recurring', '🔁 קבועה']].map(([k, l]) => `<button class="${k === mzAdd ? 'on' : ''}" data-mz-type="${k}">${l}</button>`).join('')}</div>
+  return `<div class="card"><div class="tabs">${[['income', '💰 הכנסה'], ['payment', '🕊️ תרומה'], ['recurring', '🔁 קבועה (הכנסה / תרומה)']].map(([k, l]) => `<button class="${k === mzAdd ? 'on' : ''}" data-mz-type="${k}">${l}</button>`).join('')}</div>
   <div id="mz-one" ${mzAdd === 'recurring' ? 'hidden' : ''}><label>סכום (₪) *</label><input id="mz-amt" type="number" min="0" step="0.01" placeholder="0.00"><p class="mut" id="mz-prev" hidden></p>
   <label>תיאור *</label><input id="mz-desc" placeholder="משכורת או תרומה..."><label>תאריך</label><input id="mz-date" type="date" value="${today()}"><label>הערה</label><textarea id="mz-note" rows="2" placeholder="פרטים נוספים..."></textarea>
   <button class="b" id="mz-save" data-rate="${rate}" style="margin-top:.8rem;width:100%">💾 שמירה</button></div>
-  <div id="mz-rec" ${mzAdd === 'recurring' ? '' : 'hidden'}><label>סכום (₪) *</label><input id="mz-r-amt" type="number" min="0" step="0.01" placeholder="0.00"><label>תיאור *</label><input id="mz-r-desc" placeholder="תרומה חודשית לישיבה...">
+  <div id="mz-rec" ${mzAdd === 'recurring' ? '' : 'hidden'}><label>סוג</label><select id="mz-r-type"><option value="payment">🕊️ תרומה / הוצאה קבועה</option><option value="income">💰 הכנסה קבועה</option></select><label>סכום (₪) *</label><input id="mz-r-amt" type="number" min="0" step="0.01" placeholder="0.00"><label>תיאור *</label><input id="mz-r-desc" placeholder="משכורת, תרומה חודשית לישיבה...">
   <label>תדירות</label><select id="mz-r-freq">${Object.entries(MZ_FREQ).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select><label>תאריך התחלה</label><input id="mz-r-start" type="date" value="${today()}">
   <label class="sw"><input type="checkbox" id="mz-r-has"><span><b>תאריך סיום</b></span></label><input id="mz-r-end" type="date" disabled><label>הערה</label><input id="mz-r-note" placeholder="פרטים...">
   <button class="b" id="mz-r-save" style="margin-top:.8rem;width:100%">💾 שמירת תרומה קבועה</button></div></div>`;
@@ -1727,7 +1727,7 @@ function mzHistView() {
     if (h.year !== null) { const ms = new Set(S.data.tithes.map(e => h.pft === 'hebrew' ? MH.fromISO(e.date) : { year: +e.date.slice(0, 4), month: +e.date.slice(5, 7) }).filter(x => x.year === h.year).map(x => x.month));
       sel += `<p class="mut">חודש</p>` + (h.pft === 'hebrew' ? MZ_CIVIL : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]).filter(m => ms.has(m)).map(m => chip(h.month === m, `data-mz-month="${m}"`, h.pft === 'hebrew' ? MZ_HM[m] : MZ_GM[m - 1])).join(''); }
   }
-  return `<div class="row">${[['all', 'הכל'], ['income', '💰 הכנסות'], ['payment', '🕊️ תרומות'], ['recurring', '🔁 תרומות קבועות']].map(([k, l]) => chip(h.tf === k, `data-mz-tf="${k}"`, l)).join('')}<span class="sp"></span><button class="b sec" id="mz-exp" title="יצוא">📄</button><button class="b sec" id="mz-imp" title="ייבוא">📥</button></div>
+  return `<div class="row">${[['all', 'הכל'], ['income', '💰 הכנסות'], ['payment', '🕊️ תרומות'], ['recurring', '🔁 קבועות']].map(([k, l]) => chip(h.tf === k, `data-mz-tf="${k}"`, l)).join('')}<span class="sp"></span><button class="b sec" id="mz-exp" title="יצוא">📄</button><button class="b sec" id="mz-imp" title="ייבוא">📥</button></div>
   <input id="mz-q" placeholder="חיפוש לפי תיאור, הערה, תאריך..." value="${esc(h.q)}" style="margin:.6rem 0">
   <div class="card"><b>סינון לפי תקופה</b><div>${[['none', 'ללא סינון'], ['hebrew', 'עברי'], ['greg', 'לועזי']].map(([k, l]) => chip(h.pft === k, `data-mz-pft="${k}"`, l)).join('')}</div>${sel}</div><div id="mz-list">${mzList()}</div>`;
 }
@@ -1747,7 +1747,7 @@ function mzSetView() {
   const r = mz().rate, recs = S.data.titheRec;
   return `<div class="card"><h2>שיעור המעשר</h2><div class="row"><button class="b ${r === .1 ? '' : 'sec'} sp" data-mz-rate="0.1">מעשר<br><small>10% מהכנסות</small></button><button class="b ${r === .2 ? '' : 'sec'} sp" data-mz-rate="0.2">חומש<br><small>20% מהכנסות</small></button></div></div>
   <div class="card"><h2>פרטיות וקוד גישה</h2><p class="mut">הסתרת הסכומים (👁 בכותרת) וקוד הגישה פועלים על כל התקציב כולל המעשרות, ומגדירים אותם בלשונית "עוד".</p></div>
-  <div class="card"><h2>תרומות קבועות</h2>${recs.length ? recs.map(x => `<div class="row" style="margin:.4rem 0"><span>🔁</span><div class="sp"><b>${esc(x.description)} · ${fmt(x.amount)}</b><div class="mut">${MZ_FREQ[x.frequency]} · ${x.endDate ? 'עד ' + mzGregStr(x.endDate) : 'ללא הגבלה'}</div></div><span class="chip">${x.active === false ? 'הסתיים' : 'פעיל'}</span>${canEdit() ? delBtn('titheRec', x.id) : ''}</div>`).join('') : '<p class="mut">אין תרומות קבועות</p>'}<p class="mut">להוספה: "הוספה" ← 🔁 קבועה</p></div>
+  <div class="card"><h2>הכנסות ותרומות קבועות</h2>${recs.length ? recs.map(x => `<div class="row" style="margin:.4rem 0"><span>${x.type === 'income' ? '💰' : '🕊️'}🔁</span><div class="sp"><b>${esc(x.description)} · ${fmt(x.amount)}</b><div class="mut">${MZ_FREQ[x.frequency]} · ${x.endDate ? 'עד ' + mzGregStr(x.endDate) : 'ללא הגבלה'}</div></div><span class="chip">${x.active === false ? 'הסתיים' : 'פעיל'}</span>${canEdit() ? delBtn('titheRec', x.id) : ''}</div>`).join('') : '<p class="mut">אין רשומות קבועות</p>'}<p class="mut">להוספה: "הוספה" ← 🔁 קבועה</p></div>
   ${canEdit() ? '<div class="card" style="border-color:var(--danger)"><h2 class="bad">⚠️ איפוס נתוני מעשרות</h2><p class="mut">מחיקת כל ההכנסות, התרומות והתרומות הקבועות של המעשרות (שאר התקציב לא נפגע). פעולה בלתי הפיכה.</p><button class="b red" id="mz-clear" style="width:100%">🗑️ מחק את כל נתוני המעשרות</button></div>' : ''}`;
 }
 V.maaser = () => { const sub = subTab.maaser || 'dash'; return mzNav(sub) + ({ dash: mzDash, add: mzAddView, hist: mzHistView, notif: mzNotifView, set: mzSetView }[sub] || mzDash)(); };
@@ -1761,7 +1761,7 @@ function mzImport(j) {
   if (!j || !Array.isArray(j.entries)) throw new Error('חסר שדה entries');
   const have = new Set(S.data.tithes.map(e => e.id)), haveR = new Set(S.data.titheRec.map(r => r.id)); let n = 0;
   j.entries.filter(e => e && e.id && e.date && e.description && +e.amount > 0 && (e.type === 'income' || e.type === 'payment') && !have.has(String(e.id))).forEach(e => { put('tithes', { id: String(e.id), date: e.date, type: e.type, amount: +e.amount, description: String(e.description), note: e.note || '', ...(e.recurringId ? { recurringId: String(e.recurringId) } : {}) }); n++; });
-  (Array.isArray(j.recurring) ? j.recurring : []).filter(r => r && r.id && !haveR.has(String(r.id)) && r.startDate && MZ_FREQ[r.frequency]).forEach(r => put('titheRec', { id: String(r.id), description: String(r.description || ''), amount: +r.amount || 0, frequency: r.frequency, startDate: r.startDate, endDate: r.endDate || null, lastProcessed: r.lastProcessed || null, active: r.active !== false, note: r.note || '' }));
+  (Array.isArray(j.recurring) ? j.recurring : []).filter(r => r && r.id && !haveR.has(String(r.id)) && r.startDate && MZ_FREQ[r.frequency]).forEach(r => put('titheRec', { id: String(r.id), type: r.type === 'income' ? 'income' : 'payment', description: String(r.description || ''), amount: +r.amount || 0, frequency: r.frequency, startDate: r.startDate, endDate: r.endDate || null, lastProcessed: r.lastProcessed || null, active: r.active !== false, note: r.note || '' }));
   if (typeof j.rate === 'number' && (j.rate === .1 || j.rate === .2)) mz().rate = j.rate;
   if (j.notif && typeof j.notif === 'object') { const { scheduledIds, ...nt } = j.notif; mz().notif = { ...mz().notif, ...nt }; }
   save(); return n;
@@ -1780,8 +1780,8 @@ function bindMaaser() {
   $('#mz-r-save')?.addEventListener('click', () => {
     const a = +$('#mz-r-amt').value, d = $('#mz-r-desc').value.trim(), start = $('#mz-r-start').value || today(), end = $('#mz-r-has').checked ? $('#mz-r-end').value : '';
     if (!a || a <= 0) return toast('יש להזין סכום'); if (!d) return toast('יש להזין תיאור'); if (end && end < start) return toast('תאריך סיום לפני התחלה');
-    put('titheRec', { id: uid(), description: d, amount: mzR2(a), frequency: $('#mz-r-freq').value, startDate: start, endDate: end || null, lastProcessed: null, active: true, note: $('#mz-r-note').value.trim() });
-    mzProcess(); subTab.maaser = 'set'; render(); toast('תרומה קבועה נוספה ✓');
+    put('titheRec', { id: uid(), type: $('#mz-r-type').value, description: d, amount: mzR2(a), frequency: $('#mz-r-freq').value, startDate: start, endDate: end || null, lastProcessed: null, active: true, note: $('#mz-r-note').value.trim() });
+    mzProcess(); subTab.maaser = 'set'; render(); toast('רשומה קבועה נוספה ✓');
   });
   R.querySelectorAll('[data-mz-tf]').forEach(b => b.onclick = () => { mzHist.tf = b.dataset.mzTf; render(); });
   R.querySelectorAll('[data-mz-pft]').forEach(b => b.onclick = () => { Object.assign(mzHist, { pft: b.dataset.mzPft, year: null, month: null }); render(); });
