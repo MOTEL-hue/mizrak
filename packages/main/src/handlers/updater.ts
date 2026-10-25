@@ -1,7 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { BrowserWindow, Notification } from 'electron';
 import electronUpdater from 'electron-updater';
 import logger from '../logging/logger';
 import { setQuitting } from '../quitState';
+import { netFetchRange } from './netFetchRange';
+import { downloadResumable, hashFile } from './resumableDownload';
 
 const { autoUpdater } = electronUpdater;
 
@@ -29,7 +33,62 @@ export const checkForUpdate = async () =>
     autoUpdater.checkForUpdates();
   });
 
-export const downloadUpdate = async () =>
+const progressToWindows = (percent: number) =>
+  BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('updateProgress', Math.min(100, Math.max(0, percent))));
+
+// ההורדה המלאה נעשית כאן (עם המשך מהמקום שנקטע), ואז electron-updater מוצא אותה במטמון, בודק אותה ומתקין
+async function preDownloadResumable() {
+  const internals = autoUpdater as unknown as {
+    updateInfoAndProvider?: {
+      info: { version: string };
+      provider: { resolveFiles: (info: unknown) => { url: URL; info: { sha512: string } }[] };
+    };
+    getOrCreateDownloadHelper: () => Promise<{ cacheDirForPendingUpdate: string }>;
+  };
+  const found = internals.updateInfoAndProvider;
+  if (!found) return;
+  const files = found.provider.resolveFiles(found.info);
+  const file = files.find((f) => /\.exe$/i.test(f.url.pathname)) ?? files[0];
+  if (!file) return;
+  const pending = (await internals.getOrCreateDownloadHelper()).cacheDirForPendingUpdate;
+  fs.mkdirSync(pending, { recursive: true });
+  const fileName = path.basename(file.url.pathname);
+  const finalFile = path.join(pending, fileName);
+  const infoFile = path.join(pending, 'update-info.json');
+  const sha512 = file.info.sha512;
+  try {
+    const cached = JSON.parse(fs.readFileSync(infoFile, 'utf8')) as { sha512?: string };
+    if (cached.sha512 === sha512 && fs.existsSync(finalFile) && (await hashFile(finalFile)) === sha512) return;
+  } catch {
+    // אין עדכון שמור: מורידים
+  }
+  const partFile = path.join(pending, `${fileName}.${found.info.version}.part`);
+  fs.readdirSync(pending)
+    .filter((n) => n.endsWith('.part') && n !== path.basename(partFile))
+    .forEach((n) => fs.rmSync(path.join(pending, n), { force: true }));
+  await downloadResumable({
+    fetchRange: netFetchRange(file.url.toString()),
+    partFile,
+    sha512,
+    onProgress: progressToWindows,
+    log: (m) => logger.info(`Update download: ${m}`),
+  });
+  fs.rmSync(finalFile, { force: true });
+  fs.renameSync(partFile, finalFile);
+  fs.writeFileSync(infoFile, JSON.stringify({ fileName, sha512, isAdminRightsRequired: false }));
+}
+
+export const downloadUpdate = async () => {
+  try {
+    await preDownloadResumable();
+  } catch (e) {
+    // אם ההורדה עם ההמשך נכשלה, electron-updater ינסה להוריד בעצמו
+    logger.info(`Resumable update download failed: ${(e as Error).message}`);
+  }
+  return downloadWithUpdater();
+};
+
+const downloadWithUpdater = () =>
   new Promise<electronUpdater.UpdateDownloadedEvent>((resolve, reject) => {
     autoUpdater.once('error', reject);
     autoUpdater.once('update-downloaded', resolve);
