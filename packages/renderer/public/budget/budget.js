@@ -1095,7 +1095,7 @@ function openDD(key) {
   if (!DDB[key]) return;
   let openCat, showAll = false, picked = new Set();
   const m = modal('');
-  const txTable = (list, cap = 200) => `${canEdit() ? `<div class="row"><select class="dd-cat">${catOptionsHtml()}</select><button class="b dd-assign">שייך את הנבחרות</button></div>` : ''}<div class="scroll"><table><tr>${canEdit() ? '<th><input type="checkbox" class="dd-pall"></th>' : ''}<th>תאריך</th><th>מקור</th><th>תיאור</th><th>סעיף</th><th>סכום</th></tr>${list.slice(0, cap).map(t => `<tr>${canEdit() ? `<td>${t.auto ? '' : `<input type="checkbox" data-ddt="${esc(t.id)}" ${picked.has(t.id) ? 'checked' : ''}>`}</td>` : ''}<td>${esc(String(effDate(t)).slice(0, 10).split('-').reverse().join('/'))}</td><td class="mut">${esc(srcOf(t))}${bankOf(t) ? ' · ' + esc(bankOf(t)) : ''}</td><td>${esc(t.note || '')}</td><td>${esc(t.cat || '')}</td><td class="n ${t.type === 'income' ? 'good' : 'bad'}">${t.type === 'income' ? '+' : '−'}${fmt(+t.amount)}</td></tr>`).join('')}</table></div>${list.length > cap ? `<p class="mut">מוצגות ${cap} הראשונות מתוך ${list.length}.</p>` : ''}`;
+  const txTable = (list, cap = 200) => `${canEdit() ? `<div class="row"><b>1.</b> סמנו תנועות <b>2.</b> בחרו סעיף <b>3.</b> <select class="dd-cat" data-ph="בחרו סעיף לשיוך (אפשר להקליד לחיפוש)">${catOptionsHtml()}</select><button class="b dd-assign">שייך את הנבחרות</button></div>` : ''}<div class="scroll"><table><tr>${canEdit() ? '<th><input type="checkbox" class="dd-pall"></th>' : ''}<th>תאריך</th><th>מקור</th><th>תיאור</th><th>סעיף</th><th>סכום</th></tr>${list.slice(0, cap).map(t => `<tr>${canEdit() ? `<td>${t.auto ? '' : `<input type="checkbox" data-ddt="${esc(t.id)}" ${picked.has(t.id) ? 'checked' : ''}>`}</td>` : ''}<td>${esc(String(effDate(t)).slice(0, 10).split('-').reverse().join('/'))}</td><td class="mut">${esc(srcOf(t))}${bankOf(t) ? ' · ' + esc(bankOf(t)) : ''}</td><td>${esc(t.note || '')}</td><td>${esc(t.cat || '')}</td><td class="n ${t.type === 'income' ? 'good' : 'bad'}">${t.type === 'income' ? '+' : '−'}${fmt(+t.amount)}</td></tr>`).join('')}</table></div>${list.length > cap ? `<p class="mut">מוצגות ${cap} הראשונות מתוך ${list.length}.</p>` : ''}`;
   const draw = () => {
     const d = DDB[key](), sorted = (d.txs || []).slice().sort((x, c) => String(effDate(c)).localeCompare(effDate(x)));
     const hasCats = (d.parts || []).some(p => p[3] !== undefined);
@@ -1113,8 +1113,8 @@ function openDD(key) {
       box.querySelectorAll('[data-ddt]').forEach(c => c.onchange = () => { if (c.checked) picked.add(c.dataset.ddt); else picked.delete(c.dataset.ddt); });
       box.querySelector('.dd-assign')?.addEventListener('click', () => {
         const v = box.querySelector('.dd-cat').value, ids = [...box.querySelectorAll('[data-ddt]:checked')].map(c => c.dataset.ddt);
-        if (!v) return toast('בחרו סעיף');
-        if (!ids.length) return toast('לא נבחרו תנועות');
+        if (!ids.length) return toast('סמנו קודם את התנועות לשיוך (התיבות בצד הטבלה)');
+        if (!v) { toast('בחרו סעיף מהרשימה שליד הכפתור'); const si = box.querySelector('.dd-cat').parentElement.querySelector('input'); (si || box.querySelector('.dd-cat')).focus(); return; }
         const cat = v === '__none' ? '' : v; ids.forEach(id => { const t = S.data.tx.find(x => x.id === id); if (t) put('tx', withCat(t, cat)); });
         picked = new Set(); toast(`שויכו ${ids.length} תנועות`); render(); draw();
       });
@@ -1290,7 +1290,7 @@ function makeSearchable(sel) {
   sel.dataset.srch = '1';
   const wrap = document.createElement('span'), inp = document.createElement('input'), list = document.createElement('div');
   wrap.style.cssText = 'position:relative;display:inline-block;min-width:150px;max-width:100%;vertical-align:middle;' + (sel.closest('.bud-top') ? '' : 'width:100%');
-  if (sel.classList.contains('uncls')) inp.className = 'uncls'; inp.type = 'text'; inp.autocomplete = 'off'; inp.placeholder = 'הקלדה לחיפוש...'; inp.style.width = '100%';
+  if (sel.classList.contains('uncls')) inp.className = 'uncls'; inp.type = 'text'; inp.autocomplete = 'off'; inp.placeholder = sel.dataset.ph || 'הקלדה לחיפוש...'; inp.style.width = '100%';
   list.style.cssText = 'display:none;position:absolute;inset-inline:0;top:100%;z-index:120;max-height:240px;overflow:auto;background:var(--surface,#fff);color:var(--text,#111);border:1px solid var(--border,#ccc);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.2);text-align:right';
   sel.style.display = 'none'; sel.before(wrap); wrap.append(inp, list, sel);
   const label = () => sel.selectedOptions[0] && sel.value ? sel.selectedOptions[0].textContent : '';
