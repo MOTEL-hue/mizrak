@@ -11,3 +11,8 @@ body{margin:0;min-height:100vh}
 #app .bud-nav #sync-tab b,#app .bud-nav #update-tab b{display:block;font-size:1.25rem;font-weight:400}
 body.sync-on #app .bud-nav #sync-tab,#app .bud-nav #update-tab{color:var(--gold);font-weight:700;background:var(--hdr-2)}
 body.sync-on #app .bud-nav button.on{color:var(--hdr-text)!important;font-weight:500;background:none}
+
+input:not([type]), input[type=date], input[type=datetime-local], input[type=month], input[type=week] {
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 10px;
+  padding: 0.6rem 0.75rem; min-height: 2.6rem; font: inherit; box-sizing: border-box;
+}
