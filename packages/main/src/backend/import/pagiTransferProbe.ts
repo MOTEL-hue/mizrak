@@ -7,7 +7,7 @@ import { clickByText, PORTAL_URL } from './pagiMortgages';
 
 // בדיקה חד-פעמית: בפאג"י תנועת העברה מופיעה כ"העברה מהחשבון" בלי שם המעביר או המקבל. כאן נשמר מה שהאתר מציג
 // בכל שלב (דף התנועות, ואחרי לחיצה על תנועת העברה), כדי לדעת איפה הפרטים נמצאים. הקובץ נכנס לקובץ האבחון.
-export const TRANSFER_DIAGNOSTIC_FILE = 'pagi-transfer-diagnostic-5.txt';
+export const TRANSFER_DIAGNOSTIC_FILE = 'pagi-transfer-diagnostic-6.txt';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const TRANSACTIONS_URL = `${PORTAL_URL.split('#')[0]}#/Online/OnAccountMngment/OnBalanceTrans/PrivateAccountFlow`;
@@ -91,15 +91,19 @@ export async function probePagiTransfers(browser: Browser, timeout: number) {
   const work = async () => {
     page = await browser.newPage();
     page.setDefaultTimeout(timeout);
-    await page.setViewport({ width: 420, height: 900, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
-    await page.goto(TRANSACTIONS_URL, { waitUntil: 'domcontentloaded' });
-    await sleep(12000);
-    const count = await markTransferRows(page);
-    stages.push(`## שורות העברה שנמצאו בתצוגת נייד: ${count}`);
-    if (!count) {
-      stages.push(await snapshot(page, 'תצוגת נייד: המסך'));
-      return;
+    // כמו שמשתמש מגיע לרשימה: מהדף הראשי ללחיצה על "לכל התנועות" (הדף החדש של פאג"י, עם אייקון הפירוט בכל שורה)
+    await page.goto(PORTAL_URL, { waitUntil: 'domcontentloaded' });
+    await sleep(10000);
+    const clicked = await clickByText(page, '^לכל התנועות$');
+    await sleep(15000);
+    stages.push(`## אחרי "לכל התנועות" (נלחץ: ${clicked}) כתובת: ${mask(page.url().slice(-120))}`);
+    for (const frame of page.frames().filter((f) => !/netfree/i.test(f.url()))) {
+      const text = await frame.evaluate(() => document.body?.innerText ?? '').catch(() => '');
+      stages.push(`## מסגרת ${mask(frame.url().slice(-70))}: ${text.length} תווים\n${mask(text.replace(/\s+/g, ' ').slice(0, 700))}`);
     }
+    const count = await markTransferRows(page);
+    stages.push(`## שורות העברה שנמצאו: ${count}`);
+    if (!count) return;
     for (let i = 0; i < count; i++) {
       for (const frame of page.frames()) {
         const row = await frame.$(`[data-probe-row="${i}"]`);
