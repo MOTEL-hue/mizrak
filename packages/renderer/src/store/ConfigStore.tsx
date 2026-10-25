@@ -118,9 +118,26 @@ export class ConfigStore {
     });
   }
 
+  // סריקה שהופעלה מהממשק נחשבת פעילה מההתחלה ועד שהמערכת מדווחת שהסתיימה, ולא רק כשחשבון כלשהו בדיוק רץ
+  // (בין חשבון לחשבון אין חשבון שרץ, והממשק חשב שהסריקה נגמרה ואז התחילה מחדש)
+  scrapeRunning = false;
+
+  scrapeStartedAt = 0;
+
+  beginScrape() {
+    this.scrapeRunning = true;
+    this.scrapeStartedAt = Date.now();
+  }
+
+  finishScrape() {
+    this.scrapeRunning = false;
+  }
+
   get isScraping(): boolean {
-    return !!Array.from(this.accountScrapingData.values()).find(
-      (account) => account.status === AccountStatus.IN_PROGRESS,
+    const stuck = this.scrapeRunning && Date.now() - this.scrapeStartedAt > 60 * 60 * 1000;
+    return (
+      (this.scrapeRunning && !stuck) ||
+      !!Array.from(this.accountScrapingData.values()).find((account) => account.status === AccountStatus.IN_PROGRESS)
     );
   }
 

@@ -119,6 +119,7 @@ export const registerHandlers = () => {
       total: config.scraping.accountsToScrape.filter((a) => a.active !== false).length,
       message: problems.map((x) => `${x.name}: ${x.message}`).join(' | '),
     });
+    event.reply('scrapingDone', JSON.stringify({ problems: problems.length }));
     if (problems.length > 0) {
       // הודעה בעברית גם מחוץ לחלון, וגם בתוך החלון עם הסבר
       event.reply('scrapingSummary', JSON.stringify(problems));

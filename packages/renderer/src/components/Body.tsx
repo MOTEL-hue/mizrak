@@ -33,6 +33,7 @@ const Body = () => {
     (mode?: 'all') => {
       setAskScrapeMode(false);
       configStore.clearScrapingStatus();
+      configStore.beginScrape();
       return scrape(configStore.handleScrapingEvent.bind(configStore), mode);
     },
     [configStore],

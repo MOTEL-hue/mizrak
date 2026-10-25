@@ -162,3 +162,12 @@ export async function budgetDocsBatch(ops: unknown[]): Promise<{ ok: boolean; n:
 export async function budgetRates(): Promise<{ prime: [string, number][]; fetched: string; error: string; builtin: boolean }> {
   return electron.ipcRenderer.invoke('budgetRates');
 }
+
+// סימון שסריקה הסתיימה (תמיד נשלח בסוף, גם בלי בעיות), כדי שהממשק לא יחשוב שהסריקה נגמרה בין חשבון לחשבון
+const scrapingDoneCallbacks: (() => void)[] = [];
+export function onScrapingDone(callback: () => void) {
+  if (scrapingDoneCallbacks.length === 0) {
+    electron.ipcRenderer.on('scrapingDone', () => scrapingDoneCallbacks.forEach((cb) => cb()));
+  }
+  scrapingDoneCallbacks.push(callback);
+}

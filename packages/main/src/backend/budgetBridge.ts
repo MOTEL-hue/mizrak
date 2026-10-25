@@ -21,6 +21,10 @@ const POLL_MS = 30_000;
 const FIRST_POLL_MS = 20_000;
 
 let busy = false;
+// סריקה שהופעלה מתוך התוכנה (כפתור הפעל או סנכרן עכשיו) הסתיימה בזמן הזה. בלי זה, האתר עדיין חושב ש"הגיע הזמן לסנכרון אוטומטי"
+// וגורם לסריקה שנייה מיד אחריה (למשל אחרי שישראכרט כבר סומן ב-V).
+let lastAppRunEnd = 0;
+const RECENT_RUN_MS = 45 * 60 * 1000;
 
 async function call(base: string, token: string, path: string, body?: unknown) {
   return fetch(`${base}/budget/api/${path}`, {
@@ -120,6 +124,11 @@ export async function budgetTick() {
     };
     if (ratesDue) await pushRates(base, token);
     if (!pending && !due) return;
+    // סנכרון אוטומטי של האתר ("due") לא רץ כשהתוכנה מגדירה סנכרון אוטומטי משלה, או כשבדיוק הסתיימה סריקה. בקשה ידנית מהאתר ("pending") תמיד רצה
+    if (!pending && due) {
+      const periodicOn = Number(config.scraping.periodicScrapingIntervalHours) > 0;
+      if (periodicOn || Date.now() - lastAppRunEnd < RECENT_RUN_MS) return;
+    }
 
     busy = true;
     // "סנכרן הכל מחדש": מוחקים את מה שנשמר מהסריקה החלקית, אחרת רק חשבונות שלא הסתיימו נסרקים שוב
@@ -170,6 +179,7 @@ export async function budgetTick() {
   } catch (e) {
     logAppEvent('BUDGET_BRIDGE_ERROR', { errorMessage: (e as Error).message });
   } finally {
+    if (busy) lastAppRunEnd = Date.now();
     busy = false;
   }
 }
@@ -233,6 +243,7 @@ export async function reportAppRun(
   config: Awaited<ReturnType<typeof getConfig>>,
   state: 'running' | { problems: number; total: number; message: string },
 ) {
+  if (state !== 'running') lastAppRunEnd = Date.now();
   const budget = config.outputVendors.budget;
   if (!budget?.active || !budget.options.token || !budget.options.siteUrl) return;
   try {
