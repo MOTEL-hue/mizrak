@@ -1,6 +1,6 @@
 /* התאמות לדף התקציב כשהוא רץ בתוך התוכנה (בלי כותרת האתר): תפריט הדפים למעלה */
 body{margin:0;min-height:100vh}
-#main-content{max-width:1180px;margin:0 auto;padding:0 1rem}
+#main-content{max-width:none;margin:0;padding:0 1.5rem}
 #app{padding:4.4rem 0 1.5rem}
 #app .bud-nav{top:0;bottom:auto;border-top:0;border-bottom:2px solid var(--gold);box-shadow:0 4px 14px rgba(21,33,59,.12);background:var(--hdr);}
 #app .bud-nav button{color:var(--hdr-text)!important}

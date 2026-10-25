@@ -163,3 +163,6 @@
 #app .fab{bottom:1.2rem}
 .site-main:has(#app .bud-body){max-width:none!important;width:100%;padding-inline:1.5rem}
 }
+/* מעשרות במסך רחב: ממלא את כל רוחב העמוד (בלי מרכוז או רוחב מרבי), וארבעת כרטיסי הסיכום בשורה אחת */
+.mz,.mz .mz-panel,.mz .mz-tabs{width:100%;max-width:none;margin-inline:0}
+@media (min-width:900px){.mz .summary-grid{grid-template-columns:repeat(4,1fr)}.mz .rate-grid{max-width:520px}}
