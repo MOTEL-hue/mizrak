@@ -22,14 +22,17 @@ export async function getYnabAccountData(ynabOptions: YnabConfig['options']): Pr
   return electron.ipcRenderer.invoke('getYnabAccountData', ynabOptions);
 }
 
-let updateProgressCallback: ((percent: number) => void) | undefined;
+// כמה חלקים במסך (דף הסנכרון וחלון העדכון בתקציב) מציגים התקדמות של אותה הורדה, ולכן כל אחד מהם מקבל את העדכונים
+const updateProgressListeners = new Set<(percent: number) => void>();
 
 export function onUpdateProgress(callback: (percent: number) => void) {
-  const firstTime = !updateProgressCallback;
-  updateProgressCallback = callback;
-  if (firstTime) {
-    electron.ipcRenderer.on('updateProgress', (_, percent: number) => updateProgressCallback?.(percent));
+  if (updateProgressListeners.size === 0) {
+    electron.ipcRenderer.on('updateProgress', (_, percent: number) => updateProgressListeners.forEach((fn) => fn(percent)));
   }
+  updateProgressListeners.add(callback);
+  return () => {
+    updateProgressListeners.delete(callback);
+  };
 }
 
 let summaryCallback: ((problems: { name: string; message: string }[]) => void) | undefined;

@@ -104,7 +104,17 @@ function downloadDifferential() {
   });
 }
 
-export const downloadUpdate = async () => {
+// בקשה שנייה בזמן הורדה פעילה מצטרפת להורדה הקיימת, כדי שלא יכתבו שתי הורדות לאותו קובץ
+let activeDownload: Promise<electronUpdater.UpdateDownloadedEvent> | undefined;
+
+export const downloadUpdate = () => {
+  activeDownload ??= runDownload().finally(() => {
+    activeDownload = undefined;
+  });
+  return activeDownload;
+};
+
+const runDownload = async () => {
   autoUpdater.disableDifferentialDownload = false;
   try {
     return await downloadDifferential();
