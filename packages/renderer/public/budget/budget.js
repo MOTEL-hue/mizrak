@@ -710,10 +710,31 @@ async function setTxCat(id, cat) {
   const t = S.data.tx.find(x => x.id === id && !x.del);
   if (!t) { toast('התנועה לא נמצאה, נסו לרענן את הדף'); return render(); }
   const note = String(t.note || '').slice(0, 60);
-  if (!await ask(cat ? `לשנות את הסעיף של "${note}" (${fmt(t.amount)}) ל"${cat}"?\nהשינוי חל על התנועה הזו בלבד.` : `להסיר את הסעיף מהתנועה "${note}"?`)) return render();
-  put('tx', withCat(t, cat));
-  toast('נשמר: הסעיף עודכן בתנועה הזו בלבד');
-  render();
+  if (!cat) {
+    if (!await ask(`להסיר את הסעיף מהתנועה "${note}"?`)) return render();
+    put('tx', withCat(t, cat)); toast('הסעיף הוסר מהתנועה'); return render();
+  }
+  const key0 = normNote(t.note);
+  const m = modal(`<h2>שיוך לסעיף "${esc(cat)}"</h2><p class="mut">${esc(note)} · ${fmt(t.amount)}</p>
+    <div class="card"><h3>1. רק לתנועה הזו</h3><button class="b" id="sc-one">עדכן רק את התנועה הזו</button></div>
+    <div class="card"><h3>2. הגדרה כללית לכל התנועות הדומות</h3>
+      <label for="sc-key">כל תנועה שהתיאור שלה מכיל:</label><input id="sc-key" value="${esc(key0)}">
+      <label><input type="checkbox" id="sc-over"> גם תנועות שכבר משויכות לסעיף אחר (יוחלפו)</label>
+      <p class="mut" id="sc-count"></p>
+      <button class="b" id="sc-rule">צור כלל ועדכן את התנועות</button></div>
+    <div class="row"><button class="b sec" id="sc-no">ביטול</button></div>`);
+  m.addEventListener('click', e => { if (e.target === m) render(); });
+  const matches = () => { const k = normNote(m.querySelector('#sc-key').value), over = m.querySelector('#sc-over').checked; return k ? S.data.tx.filter(x => !x.del && x.id !== t.id && normNote(x.note).includes(k) && (over || !x.cat)) : []; };
+  const upd = () => { const n = matches().length, k = normNote(m.querySelector('#sc-key').value); m.querySelector('#sc-count').textContent = k ? `הכלל יחול על התנועה הזו ועל עוד ${n} תנועות${m.querySelector('#sc-over').checked ? '' : ' שאין להן סעיף'}, וגם על תנועות עתידיות.` : 'כתבו מילה מהתיאור.'; m.querySelector('#sc-rule').disabled = !k; };
+  m.querySelector('#sc-key').oninput = upd; m.querySelector('#sc-over').onchange = upd; upd();
+  m.querySelector('#sc-no').onclick = () => { m.remove(); render(); };
+  m.querySelector('#sc-one').onclick = () => { put('tx', withCat(t, cat)); m.remove(); toast('נשמר: הסעיף עודכן בתנועה הזו בלבד'); render(); };
+  m.querySelector('#sc-rule').onclick = () => {
+    const key = m.querySelector('#sc-key').value.trim(), list = matches(), nk = normNote(key), ex = live('rules').find(r => normNote(r.key) === nk);
+    put('rules', ex ? { ...ex, cat } : { id: 'r-' + uid(), key, cat });
+    put('tx', withCat(t, cat)); list.forEach(x => put('tx', withCat(x, cat)));
+    m.remove(); toast(`${ex ? 'הכלל עודכן' : 'נוצר כלל'}, והסעיף עודכן ב-${list.length + 1} תנועות`); render();
+  };
 }
 V.txs = () => {
   const all = S.data.tx.filter(x => !x.del && !x.arch).sort((a, b) => String(b.date).localeCompare(String(a.date)));
@@ -739,7 +760,7 @@ V.txs = () => {
   <input id="tx-q" placeholder="חיפוש בתיאור או בסעיף" value="${esc(txf.q)}" style="flex:1;min-width:140px"></div>
   ${canEdit() && txf.bank ? `<p><button class="b sec" id="bk-hide">${hiddenBanks().includes(txf.bank) ? 'ביטול הסתרה: ' : 'הסתרת החשבון מהסיכומים: '}${esc(txf.bank)}</button></p>` : ''}
   ${canEdit() ? '<p><button class="b sec" id="bf-open">⬆ ייבוא מקובץ בנק</button> <button class="b sec" id="tr-open">🔄 העברות בין חשבונות</button> <button class="b sec" id="dp-open">👯 כפילויות מייבוא</button> <button class="b sec" id="src-open">🏦 מקורות בנק</button> <button class="b sec" id="imp-open">' + impLabel() + '</button> <button class="b sec" id="rc-open">🔁 חיובים חוזרים</button> <button class="b sec" id="rl-open">🏷️ כללי סיווג</button> <button class="b sec" id="cats-open">🗂 ניהול קטגוריות</button></p>' : ''}
-  <p><label><input type="checkbox" id="tx-none" ${txf.none ? 'checked' : ''}> רק תנועות בלי סעיף (${uncat})</label><br><span class="mut">בחירת סעיף כאן משנה את התנועה הזו בלבד. כדי לסווג כל התנועות הדומות יוצרים כלל (כפתור כללי סיווג).</span></p>
+  <p><label><input type="checkbox" id="tx-none" ${txf.none ? 'checked' : ''}> רק תנועות בלי סעיף (${uncat})</label><br><span class="mut">בחירת סעיף כאן מציעה שתי אפשרויות: לעדכן רק את התנועה הזו, או ליצור כלל לכל התנועות הדומות.</span></p>
   <div class="grid"><div class="kpi"><small>הכנסות</small><strong class="good">${dd('t-i', () => ({ title: 'הכנסות בסינון הנוכחי', total: fmt(inc), explain: 'תנועות הכנסה שמוצגות לפי המסננים (חודש, חשבון, חיפוש, סעיף). לא נספרות העברות בין חשבונות, כפילויות ותנועות שלא נספרות בתקציב.', ...txPart(rows.filter(t => !isDup(t) && t.type === 'income')) }), fmt(inc))}</strong></div><div class="kpi"><small>הוצאות</small><strong class="bad">${dd('t-e', () => ({ title: 'הוצאות בסינון הנוכחי', total: fmt(exp), explain: 'תנועות הוצאה שמוצגות לפי המסננים. לא נספרות העברות בין חשבונות, כפילויות ותנועות שלא נספרות בתקציב.', ...txPart(rows.filter(t => !isDup(t) && t.type !== 'income')) }), fmt(exp))}</strong></div><div class="kpi"><small>הפרש</small><strong>${dd('t-d', () => ({ title: 'הפרש בסינון הנוכחי', total: fmt(inc - exp), explain: 'הכנסות פחות הוצאות בתנועות שמוצגות.', parts: [['הכנסות', inc], ['הוצאות', -exp]] }), fmt(inc - exp))}</strong></div></div>
   ${canEdit() && rows.length ? `<div class="row" style="margin-top:8px"><label><input type="checkbox" id="tx-all"> סימון כל המוצגות</label><select id="tx-bulkcat" style="width:auto"><option value="">סעיף לסימונים…</option>${[...catGroups('expense'), ...catGroups('income').filter(g => !EXTRA_G.includes(g[0])).map(g => [g[0] + ' (הכנסות)', g[1]])].map(([title, names]) => `<optgroup label="${title}">${names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('')}</select><button class="b sec" id="tx-bulkset">החלה על המסומנות</button><button class="b red" id="tx-bulkdel">מחיקת המסומנות</button></div>` : ''}
   ${topExp.length ? `<div class="card" style="margin:8px 0"><b>הוצאות לפי סעיף</b>${topExp.map(([k, v]) => `<div data-txchip="${esc(k)}" style="cursor:pointer;margin:4px 0"><div style="display:flex;justify-content:space-between;font-size:.9rem"><span>${esc(k === '__none' ? 'ללא סעיף' : k)}</span><span>${fmt(v)}</span></div><div style="background:var(--surface-2,#eef2f7);border-radius:6px;height:8px"><div style="width:${Math.max(2, Math.round(100 * v / topExp[0][1]))}%;height:8px;border-radius:6px;background:var(--primary,#2563eb)"></div></div></div>`).join('')}</div>` : ''}
