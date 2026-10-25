@@ -7,12 +7,12 @@ import { clickByText, PORTAL_URL } from './pagiMortgages';
 
 // בדיקה חד-פעמית: בפאג"י תנועת העברה מופיעה כ"העברה מהחשבון" בלי שם המעביר או המקבל. כאן נשמר מה שהאתר מציג
 // בכל שלב (דף התנועות, ואחרי לחיצה על תנועת העברה), כדי לדעת איפה הפרטים נמצאים. הקובץ נכנס לקובץ האבחון.
-export const TRANSFER_DIAGNOSTIC_FILE = 'pagi-transfer-diagnostic.txt';
+export const TRANSFER_DIAGNOSTIC_FILE = 'pagi-transfer-diagnostic-2.txt';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function snapshot(page: Page, title: string) {
   const parts = await Promise.all(
-    page.frames().map(async (frame) => {
+    page.frames().filter((f) => !/netfree/i.test(f.url())).map(async (frame) => {
       const text = await frame.evaluate(() => document.body?.innerText ?? '').catch(() => '');
       return text.trim() ? `[${frame.url().split('?')[0].slice(-80)}] ${text.replace(/\s+/g, ' ').slice(0, 2500)}` : '';
     }),
@@ -32,15 +32,15 @@ export async function probePagiTransfers(browser: Browser, timeout: number) {
     page.setDefaultTimeout(timeout);
     await page.goto(PORTAL_URL, { waitUntil: 'domcontentloaded' });
     await sleep(8000);
-    stages.push(await snapshot(page, 'דף הבית'));
-    await clickByText(page, '^(תנועות בחשבון|תנועות|עובר ושב|עו\"ש|עובר ושב \\(עו\"ש\\))$');
-    await sleep(7000);
-    stages.push(await snapshot(page, 'אחרי לחיצה על תנועות'));
-    await clickByText(page, '^העברה מהחשבון$');
-    await sleep(4000);
+    // בהרצה הקודמת הדף הראשי הציג רק "תנועות אחרונות" (בלי פרטי העברה): הדף המלא נפתח מהקישור "לכל התנועות"
+    await clickByText(page, '^לכל התנועות$');
+    await sleep(8000);
+    stages.push(await snapshot(page, 'אחרי לחיצה על "לכל התנועות"'));
+    await clickByText(page, '^העברה');
+    await sleep(5000);
     stages.push(await snapshot(page, 'אחרי לחיצה על תנועת העברה'));
-    await clickByText(page, '^(פרטים|פרטים נוספים|הצג פרטים|לפרטים)$');
-    await sleep(3000);
+    await clickByText(page, '^(פרטים|פרטים נוספים|הצג פרטים|לפרטים|פרטי התנועה)$');
+    await sleep(4000);
     stages.push(await snapshot(page, 'אחרי לחיצה על פרטים'));
   };
   try {

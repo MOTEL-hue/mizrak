@@ -47,7 +47,7 @@ async function mortgageDiagnostic(): Promise<string> {
 // מה שפאג"י הציג בדף התנועות ובפרטי העברה (בדיקה חד-פעמית; עלול לכלול שמות של מעבירים ומקבלים)
 async function transferDiagnostic(): Promise<string> {
   try {
-    return (await fs.promises.readFile(path.join(userDataPath, 'pagi-transfer-diagnostic.txt'), 'utf8')).slice(0, 12000);
+    return (await fs.promises.readFile(path.join(userDataPath, 'pagi-transfer-diagnostic-2.txt'), 'utf8')).slice(0, 12000);
   } catch {
     return '(אין)';
   }
