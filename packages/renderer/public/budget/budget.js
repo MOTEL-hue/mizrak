@@ -126,7 +126,7 @@ async function pull(quiet) {
   if (!r.ok) throw { code: r.status }; const j = await r.json();
   if (quiet && ready && (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || '') || COLL.every(c => dataKey(S.data[c]) === dataKey(j[c])))) return;
   COLL.forEach(c => S.data[c] = j[c] || []); S.data.debts.filter(x => !x.del && !x.start).forEach(x => put('debts', { ...x, start: today().slice(0, 7) })); if (j.settings && j.settings.main) Object.assign(S.settings, j.settings.main);
-  ready = true; mzProcess(); render(); loadPrime();
+  ready = true; mzProcess(); mzSnap(); render(); loadPrime();
 }
 async function loadPrime() {
   try {
@@ -771,6 +771,7 @@ async function setTxCat(id, cat, after = render) {
     <div class="card"><h3>2. הגדרה כללית לכל התנועות הדומות</h3>
       <label for="sc-key">כל תנועה שהתיאור שלה מכיל:</label><input id="sc-key" value="${esc(key0)}">
       <label><input type="checkbox" id="sc-over"> גם תנועות שכבר משויכות לסעיף אחר (יוחלפו)</label>
+      <label for="sc-th">מעשרות</label><select id="sc-th">${mzTitheOpts((live('rules').find(r => normNote(r.key) === normNote(key0)) || {}).tithe || '')}</select>
       <p class="mut" id="sc-count"></p>
       <button class="b" id="sc-rule">צור כלל ועדכן את התנועות</button></div>
     <div class="row"><button class="b sec" id="sc-no">ביטול</button></div>`);
@@ -782,7 +783,8 @@ async function setTxCat(id, cat, after = render) {
   m.querySelector('#sc-one').onclick = () => { put('tx', withCat(t, cat)); m.remove(); toast('נשמר: הסעיף עודכן בתנועה הזו בלבד'); after(); };
   m.querySelector('#sc-rule').onclick = () => {
     const key = m.querySelector('#sc-key').value.trim(), list = matches(), nk = normNote(key), ex = live('rules').find(r => normNote(r.key) === nk);
-    put('rules', ex ? { ...ex, cat } : { id: 'r-' + uid(), key, cat });
+    const th = m.querySelector('#sc-th').value;
+    put('rules', { ...(ex || { id: 'r-' + uid(), key }), cat, ...(th ? { tithe: th } : { tithe: undefined }) });
     put('tx', withCat(t, cat)); list.forEach(x => put('tx', withCat(x, cat)));
     m.remove(); toast(`${ex ? 'הכלל עודכן' : 'נוצר כלל'}, והסעיף עודכן ב-${list.length + 1} תנועות`); after();
   };
@@ -1269,10 +1271,10 @@ function rulesModal() {
   const draw = () => {
     const rs = ruleList(), sg = ruleSuggestions(), fq = clsGroups().filter(g => g.n >= 3 && !g.cat && g.key !== '(ללא תיאור)' && !ruleCat(g.key)).sort((a, b) => b.n - a.n).slice(0, 12), uncat = live('tx').filter(t => !t.cat && ruleCat(t.note)).length;
     body.innerHTML = `<h2>כללי סיווג</h2><p class="mut"><b>איך זה עובד:</b> כותבים מילה שמופיעה בתיאור של תנועה בבנק (למשל "שופרסל"), בוחרים לאיזה סעיף היא שייכת, ולוחצים "הוספת כלל". מעכשיו כל תנועה שהתיאור שלה מכיל את המילה תקבל את הסעיף לבד. הכלל פועל על תנועות חדשות, ואפשר גם להחיל אותו על תנועות ישנות שאין להן סעיף (הכפתור למטה).</p><p class="mut"><b>אין סעיף מתאים?</b> קודם יוצרים קטגוריה בטופס "קטגוריה חדשה" בהמשך החלון, ואז חוזרים לכאן.</p>
-      <h3>יצירת כלל</h3><div class="rl-form"><input id="rl-k" placeholder="מילה בתיאור, למשל שופרסל"><select id="rl-c">${catOpts()}</select><button class="b" id="rl-add">הוספת כלל</button></div>
+      <h3>יצירת כלל</h3><div class="rl-form"><input id="rl-k" placeholder="מילה בתיאור, למשל שופרסל"><select id="rl-c">${catOpts()}</select><select id="rl-t" title="האם נספרת במעשרות">${mzTitheOpts()}</select><button class="b" id="rl-add">הוספת כלל</button></div>
       <h3>הכללים הקיימים (${rs.length})</h3>
-      ${rs.length ? `<p class="mut">אפשר לשנות את המילה או את הסעיף ולשמור, או למחוק כלל. שינוי בכלל משפיע על תנועות חדשות בלבד.</p><div class="scroll"><table>${rs.map((r, i) => `<tr><td><input data-rke="${i}" value="${esc(r.key)}" style="min-width:110px"></td><td><select data-rce="${i}">${catOpts(r.cat)}</select></td><td><button class="b sec" data-rse="${i}">שמירה</button> <button class="ic" data-rldel="${esc(r.id)}" title="מחיקה">✕</button></td></tr>`).join('')}</table></div>` : '<p class="mut">עוד אין כללים.</p>'}
-      <h3>קטגוריה חדשה</h3><p class="mut">אין סעיף מתאים ברשימה? יוצרים כאן. מגדירים שם, אם היא חוזרת כל חודש או פעם בשנה, האם זו הכנסה או הוצאה, והאם הסכום קבוע או משתנה. "שונות" היא קטגוריה כללית שנספרת בהכנסות או בהוצאות. "לא קשור" לא נספרת בכלל, למשל העברה בין חשבונות או הלוואה לחבר וההחזר שלו. אחרי היצירה היא תופיע ברשימת הסעיפים של הכלל.</p><div class="rl-form"><input id="nc-n" placeholder="שם הקטגוריה, למשל חוגים"><select id="nc-f"><option value="monthly">חודשית</option><option value="yearly">שנתית</option></select><select id="nc-t"><option value="expense">הוצאה</option><option value="income">הכנסה</option><option value="misc">שונות (נספרת)</option><option value="nb">לא קשור (לא נספרת)</option></select><select id="nc-k"><option value="fixed">קבועה (אותו סכום)</option><option value="var">לא קבועה (משתנה)</option></select><button class="b sec" id="nc-add">הוספת קטגוריה</button></div>
+      ${rs.length ? `<p class="mut">אפשר לשנות את המילה או את הסעיף ולשמור, או למחוק כלל. שינוי בסעיף משפיע על תנועות חדשות בלבד. הגדרת המעשרות חלה גם על תנועות קיימות.</p><div class="scroll"><table>${rs.map((r, i) => `<tr><td><input data-rke="${i}" value="${esc(r.key)}" style="min-width:110px"></td><td><select data-rce="${i}">${catOpts(r.cat)}</select></td><td><select data-rte="${i}" title="האם נספרת במעשרות">${mzTitheOpts(r.tithe)}</select></td><td><button class="b sec" data-rse="${i}">שמירה</button> <button class="ic" data-rldel="${esc(r.id)}" title="מחיקה">✕</button></td></tr>`).join('')}</table></div>` : '<p class="mut">עוד אין כללים.</p>'}
+      <h3>קטגוריה חדשה</h3><p class="mut">אין סעיף מתאים ברשימה? יוצרים כאן. מגדירים שם, אם היא חוזרת כל חודש או פעם בשנה, האם זו הכנסה או הוצאה, והאם הסכום קבוע או משתנה. "שונות" היא קטגוריה כללית שנספרת בהכנסות או בהוצאות. "לא קשור" לא נספרת בכלל, למשל העברה בין חשבונות או הלוואה לחבר וההחזר שלו. אחרי היצירה היא תופיע ברשימת הסעיפים של הכלל.</p><div class="rl-form"><input id="nc-n" placeholder="שם הקטגוריה, למשל חוגים"><select id="nc-f"><option value="monthly">חודשית</option><option value="yearly">שנתית</option></select><select id="nc-t"><option value="expense">הוצאה</option><option value="income">הכנסה</option><option value="misc">שונות (נספרת)</option><option value="nb">לא קשור (לא נספרת)</option></select><select id="nc-k"><option value="fixed">קבועה (אותו סכום)</option><option value="var">לא קבועה (משתנה)</option></select><select id="nc-th" title="האם נספרת במעשרות">${mzTitheOpts()}</select><button class="b sec" id="nc-add">הוספת קטגוריה</button></div>
       ${fq.length ? `<h3>תיאורים נפוצים בלי סעיף</h3><p class="mut">מופיעים הרבה ואין להם סעיף. בוחרים סעיף ויוצרים כלל:</p><div class="scroll"><table>${fq.map((o, i) => `<tr><td>${esc(o.key)}</td><td class="mut">הופיע ${o.n} פעמים</td><td><select data-fqc="${i}" style="min-width:120px">${catOpts()}</select></td><td><button class="b sec" data-fqb="${i}">צור כלל +</button></td></tr>`).join('')}</table></div>` : ''}
       <p><button class="b sec" id="rl-apply" ${uncat ? '' : 'disabled'}>החלה על ${uncat} תנועות בלי סעיף</button></p>
       ${sg.length ? `<h3>הצעות</h3><p class="mut">תיאורים שסיווגת כבר כמה פעמים לאותו סעיף:</p><div class="scroll"><table>${sg.map((o, i) => `<tr><td>${esc(o.key)}</td><td>${esc(o.cat)}</td><td>${o.n} פעמים</td><td><button class="b sec" data-rlsg="${i}">הוספה</button></td></tr>`).join('')}</table></div>` : ''}
@@ -1280,7 +1282,7 @@ function rulesModal() {
       <div class="row" style="margin-top:12px"><button class="b sec" id="rl-no">סגירה</button></div>`;
     body.querySelector('#rl-no').onclick = () => m.remove();
     body.querySelector('#rl-cats').onclick = () => { m.remove(); tab = 'cats'; render(); scrollTo(0, 0); };
-    body.querySelector('#rl-add').onclick = async () => { const key = body.querySelector('#rl-k').value.trim(), cat = ensureCat(body.querySelector('#rl-c').value); if (!normNote(key)) return toast('כותבים מילה מהתיאור'); if (!cat) return toast('לא נבחר סעיף. אם אין סעיף מתאים, קודם יוצרים קטגוריה בטופס "קטגוריה חדשה" למטה.'); if (!await ask(`ליצור כלל: כל תנועה שהתיאור שלה מכיל "${key}" תסווג ל"${cat}"?`)) return; put('rules', { id: 'r-' + uid(), key, cat }); toast('הכלל נוסף'); draw(); render(); };
+    body.querySelector('#rl-add').onclick = async () => { const key = body.querySelector('#rl-k').value.trim(), cat = ensureCat(body.querySelector('#rl-c').value); if (!normNote(key)) return toast('כותבים מילה מהתיאור'); if (!cat) return toast('לא נבחר סעיף. אם אין סעיף מתאים, קודם יוצרים קטגוריה בטופס "קטגוריה חדשה" למטה.'); if (!await ask(`ליצור כלל: כל תנועה שהתיאור שלה מכיל "${key}" תסווג ל"${cat}"?`)) return; const th = body.querySelector('#rl-t').value; put('rules', { id: 'r-' + uid(), key, cat, ...(th ? { tithe: th } : {}) }); toast('הכלל נוסף'); draw(); render(); };
     body.querySelector('#nc-t').onchange = e => { const x = e.target.value === 'misc' || e.target.value === 'nb'; body.querySelector('#nc-f').disabled = x; body.querySelector('#nc-k').disabled = x; };
     body.querySelector('#nc-add').onclick = () => {
       const name = body.querySelector('#nc-n').value.trim(), freq = body.querySelector('#nc-f').value, typ = body.querySelector('#nc-t').value, inc = typ === 'income', fixed = body.querySelector('#nc-k').value === 'fixed';
@@ -1288,10 +1290,11 @@ function rulesModal() {
         if (!name) return toast('כותבים שם לקטגוריה');
         const key = typ === 'nb' ? 'nbCats' : 'miscCats', cur = typ === 'nb' ? nbCats() : miscCats();
         if (cur.includes(name)) return toast('כבר יש קטגוריה כזו בשם "' + name + '"');
-        S.settings[key] = [...cur, name]; save();
+        S.settings[key] = [...cur, name]; mzSetCatTithe(name, body.querySelector('#nc-th').value); save();
         toast('הקטגוריה "' + name + '" נוספה. עכשיו אפשר לבחור אותה בכלל.'); draw(); render(); return;
       }
       if (!name) return toast('כותבים שם לקטגוריה');
+      mzSetCatTithe(name, body.querySelector('#nc-th').value);
       if (freq === 'yearly' ? live('yearly').some(x => x.name === name) : monthlyPlan().some(p => p.name === name)) return toast('כבר יש קטגוריה ' + (freq === 'yearly' ? 'שנתית' : 'חודשית') + ' בשם "' + name + '". בוחרים אותה ברשימת הסעיפים של הכלל.');
       if (freq === 'yearly') put('yearly', { id: 'y-' + uid(), kind: inc ? 'income' : 'expense', month: 'כללי', name, amount: '0', year: '', fixed });
       else put('plan', { id: 'p-' + uid(), kind: inc ? (fixed ? 'income' : 'incomeVar') : (fixed ? 'fixed' : 'variable'), name, amount: '0', active: true });
@@ -1302,9 +1305,10 @@ function rulesModal() {
       const i = b.dataset.rse, r = rs[+i], key = body.querySelector(`[data-rke="${i}"]`).value.trim(), cat = body.querySelector(`[data-rce="${i}"]`).value;
       if (!normNote(key)) return toast('כותבים מילה מהתיאור');
       if (!cat) return toast('בוחרים סעיף לכלל');
-      if (key === r.key && cat === r.cat) return toast('לא שונה כלום');
+      const th = body.querySelector(`[data-rte="${i}"]`).value;
+      if (key === r.key && cat === r.cat && th === (r.tithe || '')) return toast('לא שונה כלום');
       if (!await ask(`לשמור את השינוי? כל תנועה חדשה שהתיאור שלה מכיל "${key}" תסווג ל"${cat}".`)) return;
-      put('rules', { id: r.id, key, cat }); toast('הכלל עודכן'); draw(); render();
+      put('rules', { id: r.id, key, cat, ...(th ? { tithe: th } : {}) }); toast('הכלל עודכן'); draw(); render();
     });
     body.querySelectorAll('[data-fqb]').forEach(b => b.onclick = async () => { const o = fq[+b.dataset.fqb], cat = ensureCat(body.querySelector(`[data-fqc="${b.dataset.fqb}"]`).value); if (!cat) return toast('בוחרים סעיף'); const cnt = live('tx').filter(t => !t.cat && normNote(t.note).includes(normNote(o.key))).length; if (!await ask(`ליצור כלל: "${o.key}" ← "${cat}"? הסעיף יעודכן גם ב-${cnt} תנועות שאין להן סעיף.`)) return; put('rules', { id: 'r-' + uid(), key: o.key, cat }); let n = 0; live('tx').filter(t => !t.cat && normNote(t.note).includes(normNote(o.key))).forEach(t => { put('tx', withCat(t, cat)); n++; }); toast(`נוצר כלל, והסעיף עודכן ב-${n} תנועות`); draw(); render(); });
     body.querySelectorAll('[data-rlsg]').forEach(b => b.onclick = async () => { const o = sg[+b.dataset.rlsg]; if (!await ask(`ליצור כלל: "${o.key}" ← "${o.cat}"?`)) return; put('rules', { id: 'r-' + uid(), key: o.key, cat: o.cat }); draw(); });
@@ -1385,13 +1389,14 @@ V.cats = () => {
     <td><select data-cx="${r.c}|${esc(r.x.id)}|q"><option value="plan" ${r.c === 'plan' ? 'selected' : ''}>חודשית</option><option value="yearly" ${r.c === 'yearly' ? 'selected' : ''}>שנתית</option></select></td>
     <td><select data-cx="${r.c}|${esc(r.x.id)}|t"><option value="expense" ${r.inc ? '' : 'selected'}>הוצאה</option><option value="income" ${r.inc ? 'selected' : ''}>הכנסה</option></select></td>
     <td>${r.c === 'plan' ? `<select data-cx="${r.c}|${esc(r.x.id)}|f"><option value="fixed" ${r.fixed ? 'selected' : ''}>קבועה</option><option value="var" ${!r.fixed && !r.special ? 'selected' : ''}>משתנה</option>${r.special ? `<option value="${r.special}" selected>${PLAN_KINDS[r.special]}</option>` : ''}</select>` : '<span class="mut">—</span>'}</td>
+    <td><select data-cth="${esc(r.x.name)}">${mzTitheOpts((mz().cats || {})[r.x.name])}</select></td>
     <td style="white-space:nowrap"><button class="b sec" data-cnb="${r.c}|${esc(r.x.id)}" title="לא נספרת בתקציב">🚫 לא נספרת</button> <button class="b red" data-cdel="${r.c}|${esc(r.x.id)}" title="מחיקה" aria-label="מחיקת ${esc(r.x.name)}">🗑️</button></td></tr>`;
   const back = n => `<tr><td>${esc(n)}</td><td colspan="3"><select data-cback="${esc(n)}"><option value="">להחזיר לספירה כ…</option><option value="plan|0">הוצאה חודשית</option><option value="plan|1">הכנסה חודשית</option><option value="yearly|0">הוצאה שנתית</option><option value="yearly|1">הכנסה שנתית</option></select></td><td><button class="b red" data-cnbdel="${esc(n)}" aria-label="מחיקת ${esc(n)}">🗑️</button></td></tr>`;
   return `<div class="card"><p><button class="b sec" id="cats-back">→ חזרה לסיווג</button></p><h2>🗂 הקטגוריות שלי</h2>
     <p class="mut">כל הקטגוריות במקום אחד. אפשר לשנות לכל אחת: הכנסה או הוצאה, חודשית או שנתית (הסכום מתורגם: חודשי × 12 לשנתי), קבועה או משתנה, "לא נספרת" (תנועות שלה לא נכנסות לתקציב), או למחוק. תנועות שכבר סווגו נשארות עם שם הקטגוריה.</p>
     <p><button class="b sec" id="cats-rules">🏷️ כללי סיווג וקטגוריה חדשה</button></p>
     <h3>קטגוריות נספרות (${rows.length})</h3>
-    ${rows.length ? `<div class="scroll"><table><tr><th>שם</th><th>תדירות</th><th>סוג</th><th>קבועה / משתנה</th><th></th></tr>${rows.map(row).join('')}</table></div>` : '<p class="mut">אין קטגוריות.</p>'}
+    ${rows.length ? `<div class="scroll"><table><tr><th>שם</th><th>תדירות</th><th>סוג</th><th>קבועה / משתנה</th><th>מעשרות</th><th></th></tr>${rows.map(row).join('')}</table></div>` : '<p class="mut">אין קטגוריות.</p>'}
     <h3>לא נספרות (${nb.length})</h3><p class="mut">תנועות בקטגוריות האלה לא נספרות בהכנסות ובהוצאות.</p>
     ${nb.length ? `<div class="scroll"><table>${nb.map(back).join('')}</table></div>` : '<p class="mut">אין.</p>'}
     ${misc.length ? `<h3>שונות (${misc.length})</h3><div class="scroll"><table>${misc.map(n => `<tr><td>${esc(n)}</td><td><button class="b red" data-cmdel="${esc(n)}" aria-label="מחיקת ${esc(n)}">🗑️</button></td></tr>`).join('')}</table></div>` : ''}</div>`;
@@ -1400,6 +1405,7 @@ function bindCats() {
   const R = $('#app'), find = key => { const [c, id] = key.split('|'); return { c, x: live(c).find(r => r.id === id) }; };
   $('#cats-back')?.addEventListener('click', () => { tab = 'cls'; render(); scrollTo(0, 0); });
   $('#cats-rules')?.addEventListener('click', rulesModal);
+  R.querySelectorAll('[data-cth]').forEach(el => el.onchange = () => { mzSetCatTithe(el.dataset.cth, el.value); save(); toast('נשמר: ' + (el.value ? MZ_CLASSES[el.value] : 'לא נספרת במעשרות')); });
   R.querySelectorAll('[data-cx]').forEach(el => el.onchange = async () => {
     const [c, id, w] = el.dataset.cx.split('|'), x = live(c).find(r => r.id === id);
     if (!x) return toast('הקטגוריה לא נמצאה, נסו לרענן');
@@ -1646,8 +1652,25 @@ function mz() {
   return m;
 }
 let mzAdd = 'income', mzHist = { tf: 'all', q: '', pft: 'none', year: null, month: null };
+const MZ_CLASSES = { income: 'הכנסה חייבת במעשרות', payment: 'תרומה', payRec: 'תרומה קבועה' };
+const mzTitheOpts = (sel = '') => `<option value="">לא נספרת במעשרות</option>${Object.entries(MZ_CLASSES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('')}`;
+// תנועות בנק שנספרות במעשרות לפי כלל (rules[].tithe) או ברירת מחדל של הקטגוריה (settings.maaser.cats). רישום ידני באותו סכום ובטווח 3 ימים נחשב אותה תנועה, ולא נספר פעמיים
+function mzBank() {
+  const cats = mz().cats || {}, rl = ruleList(), out = [];
+  if (!Object.keys(cats).length && !rl.some(r => r.tithe)) return out;
+  const manual = S.data.tithes.map(e => ({ type: e.type, amt: +e.amount, rd: MH.isoRD(e.date), used: false }));
+  for (const t of live('tx')) {
+    const n = normNote(t.note), r = rl.find(x => n.includes(x.nk)), k = (r && r.tithe) || cats[t.cat] || '', amt = +t.amount, type = k === 'income' ? 'income' : 'payment';
+    if (!MZ_CLASSES[k] || !(amt > 0) || (k === 'income') !== (t.type === 'income')) continue;
+    const date = effDate(t), rd = MH.isoRD(date), dup = manual.find(m => !m.used && m.type === type && Math.abs(m.amt - amt) < 0.005 && Math.abs(m.rd - rd) <= 3);
+    if (dup) { dup.used = true; continue; }
+    out.push({ id: 'tx-' + t.id, date, type, amount: amt, description: t.note || t.cat || 'תנועת בנק', note: 'מהבנק' + (t.cat ? ' · ' + t.cat : ''), fromTx: true, ...(k === 'payRec' ? { recurringId: 'bank' } : {}) });
+  }
+  return out;
+}
+const mzAll = () => [...S.data.tithes, ...mzBank()];
 function mzTotals() {
-  let inc = 0, paid = 0; S.data.tithes.forEach(e => { if (e.type === 'income') inc += +e.amount; if (e.type === 'payment') paid += +e.amount; });
+  let inc = 0, paid = 0; mzAll().forEach(e => { if (e.type === 'income') inc += +e.amount; if (e.type === 'payment') paid += +e.amount; });
   const oblig = inc * mz().rate, bal = Math.max(0, oblig - paid);
   return { inc, paid, oblig, bal, extra: Math.max(0, paid - oblig), pct: oblig > 0 ? Math.min(100, paid / oblig * 100) : 0 };
 }
@@ -1685,6 +1708,10 @@ function mzTodayLabel() { // האם היום מוגדרת התראה: מחזיר
   }
   return null;
 }
+function mzSetCatTithe(name, v) { const c = mz().cats || (mz().cats = {}); if (v) c[name] = v; else delete c[name]; }
+function mzSnap() { // היתרה נשמרת בהגדרות כדי שההתראות בשרת יתבססו על אותו חישוב (כולל תנועות הבנק)
+  const m = mz(), bal = Math.round(mzTotals().bal * 100) / 100; if (m.bal !== bal) { m.bal = bal; save(); }
+}
 function mzNav(sub) { return `<div class="mz-tabs">${[['dash', '▦', 'סיכום'], ['add', '＋', 'הוספה'], ['hist', '🕘', 'היסטוריה'], ['notif', '🔔', 'התראות'], ['set', '⚙️', 'הגדרות']].map(([k, ic, l]) => `<button class="${k === sub ? 'active' : ''}" data-sub="maaser:${k}"><b>${ic}</b>${l}</button>`).join('')}</div>`; }
 const mzTog = (attrs, on) => `<label class="tog-wrap"><input type="checkbox" ${attrs} ${on ? 'checked' : ''}><span class="tog-slider"></span></label>`;
 const mzDel = (c, id) => canEdit() ? `<button class="h-del" data-del="${c}:${id}" title="מחיקה">✕</button>` : '';
@@ -1702,14 +1729,14 @@ function mzAddView() {
   <div class="form-group"><label class="form-label">תאריך</label><input class="form-input" id="mz-date" type="date" value="${today()}"></div>
   <div class="form-group"><label class="form-label">הערה</label><textarea class="form-textarea" id="mz-note" placeholder="פרטים נוספים..."></textarea></div>
   <button class="btn btn-pri btn-full" id="mz-save">💾 שמור</button></div>
-  <div id="mz-rec" ${mzAdd === 'recurring' ? '' : 'hidden'}><div class="form-group"><label class="form-label">סוג</label><select class="form-select" id="mz-r-type"><option value="payment">🕊️ תרומה / הוצאה קבועה</option><option value="income">💰 הכנסה קבועה</option></select></div>
+  <div id="mz-rec" ${mzAdd === 'recurring' ? '' : 'hidden'}><div class="form-group"><label class="form-label">סוג</label><select class="form-select" id="mz-r-type"><option value="income">💰 הכנסה קבועה</option><option value="payment">🕊️ תרומה קבועה</option></select></div>
   <div class="form-group"><label class="form-label">סכום (₪) *</label><input class="form-input" id="mz-r-amt" type="number" min="0" step="0.01" placeholder="0.00"></div>
   <div class="form-group"><label class="form-label">תיאור *</label><input class="form-input" id="mz-r-desc" type="text" placeholder="משכורת, תרומה חודשית לישיבה..."></div>
   <div class="form-group"><label class="form-label">תדירות</label><select class="form-select" id="mz-r-freq">${Object.entries(MZ_FREQ).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>
   <div class="form-group"><label class="form-label">תאריך התחלה</label><input class="form-input" id="mz-r-start" type="date" value="${today()}"></div>
   <div class="form-group"><div class="mz-row" style="margin-bottom:5px"><label class="form-label" style="margin:0">תאריך סיום</label>${mzTog('id="mz-r-has"', false)}</div><input class="form-input" id="mz-r-end" type="date" disabled style="opacity:.42"></div>
   <div class="form-group"><label class="form-label">הערה</label><input class="form-input" id="mz-r-note" type="text" placeholder="פרטים..."></div>
-  <button class="btn btn-full" id="mz-r-save" style="background:#E65100;color:#fff">💾 שמירת רשומה קבועה</button></div></div>`;
+  <button class="btn btn-full" id="mz-r-save" style="background:#E65100;color:#fff">💾 שמירה</button></div></div>`;
 }
 function mzMatch(e) {
   const h = mzHist, q = h.q.trim().toLowerCase();
@@ -1721,17 +1748,17 @@ function mzMatch(e) {
   return !q || e.description.toLowerCase().includes(q) || (e.note || '').toLowerCase().includes(q) || e.date.includes(q) || mzHebStr(e.date).includes(h.q.trim()) || mzGregStr(e.date).includes(h.q.trim());
 }
 function mzList() {
-  const list = S.data.tithes.filter(mzMatch).sort((a, b) => b.date.localeCompare(a.date)), rate = mz().rate;
+  const list = mzAll().filter(mzMatch).sort((a, b) => b.date.localeCompare(a.date)), rate = mz().rate;
   return `<div class="result-count">${list.length ? list.length + ' רשומות' : ''}</div>` + (list.length ? `<div class="hist-list">${list.map(e => { const inc = e.type === 'income', rec = !!e.recurringId, k = rec ? 'rec' : inc ? 'inc' : 'pay';
     return `<div class="hist-item${rec ? ' rec-item' : ''}"><div class="h-icon ${k}">${rec ? '🔁' : inc ? '💰' : '🕊️'}</div><div class="h-body"><div class="h-desc">${esc(e.description)}</div><div class="h-meta">${mzHebStr(e.date)} · ${mzGregStr(e.date)}${e.note ? ' · ' + esc(e.note) : ''}</div></div>
-    <div class="h-right"><div class="h-amt ${k}">${inc ? '+' : '-'}${fmt(e.amount)}</div>${inc ? `<span class="h-maaser">מעשר: ${fmt(e.amount * rate)}</span>` : ''}</div>${mzDel('tithes', e.id)}</div>`; }).join('')}</div>` : '<div class="empty"><div class="empty-icon">📭</div><div class="empty-txt">אין רשומות תואמות</div></div>');
+    <div class="h-right"><div class="h-amt ${k}">${inc ? '+' : '-'}${fmt(e.amount)}</div>${inc ? `<span class="h-maaser">מעשר: ${fmt(e.amount * rate)}</span>` : ''}</div>${e.fromTx ? '<span title="נספר אוטומטית מתנועת בנק. משנים בכללי הסיווג" style="font-size:.8em;opacity:.6">🏦</span>' : mzDel('tithes', e.id)}</div>`; }).join('')}</div>` : '<div class="empty"><div class="empty-icon">📭</div><div class="empty-txt">אין רשומות תואמות</div></div>');
 }
 function mzHistView() {
-  const h = mzHist, years = new Set(S.data.tithes.map(e => h.pft === 'hebrew' ? MH.fromISO(e.date).year : +e.date.slice(0, 4))), chip = (on, attr, l, cls = '') => `<button class="chip ${cls} ${on ? 'active' : ''}" ${attr}>${l}</button>`;
+  const h = mzHist, all = mzAll(), years = new Set(all.map(e => h.pft === 'hebrew' ? MH.fromISO(e.date).year : +e.date.slice(0, 4))), chip = (on, attr, l, cls = '') => `<button class="chip ${cls} ${on ? 'active' : ''}" ${attr}>${l}</button>`;
   let sel = '';
   if (h.pft !== 'none') {
     sel = `<div class="filter-label">שנה</div><div class="chip-row" style="margin-bottom:6px">${[...years].sort((a, b) => b - a).map(y => chip(h.year === y, `data-mz-year="${y}"`, h.pft === 'hebrew' ? `${MH.num(y % 1000)} (${y})` : y)).join('')}</div>`;
-    if (h.year !== null) { const ms = new Set(S.data.tithes.map(e => h.pft === 'hebrew' ? MH.fromISO(e.date) : { year: +e.date.slice(0, 4), month: +e.date.slice(5, 7) }).filter(x => x.year === h.year).map(x => x.month));
+    if (h.year !== null) { const ms = new Set(all.map(e => h.pft === 'hebrew' ? MH.fromISO(e.date) : { year: +e.date.slice(0, 4), month: +e.date.slice(5, 7) }).filter(x => x.year === h.year).map(x => x.month));
       sel += `<div class="filter-label">חודש</div><div class="chip-row">` + (h.pft === 'hebrew' ? MZ_CIVIL : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]).filter(m => ms.has(m)).map(m => chip(h.month === m, `data-mz-month="${m}"`, h.pft === 'hebrew' ? MZ_HM[m] : MZ_GM[m - 1])).join('') + '</div>'; }
   }
   return `<div class="hist-toolbar"><div class="chip-row" style="flex:1">${[['all', 'הכל', ''], ['income', '💰 הכנסות', ''], ['payment', '🕊️ תרומות', ''], ['recurring', '🔁 קבועות', 'org']].map(([k, l, c]) => chip(h.tf === k, `data-mz-tf="${k}"`, l, c)).join('')}</div><div class="io-btns"><button class="btn btn-sec btn-sm" id="mz-exp" title="יצוא">📄</button><button class="btn btn-sec btn-sm" id="mz-imp" title="ייבוא">📥</button></div></div>
@@ -1757,7 +1784,7 @@ function mzSetView() {
   <div class="settings-section"><div class="settings-sec-title">הכנסות ותרומות קבועות</div>${recs.length ? recs.map(x => `<div class="rec-card${x.active === false ? ' ended' : ''}"><div style="flex-shrink:0">${x.type === 'income' ? '💰' : '🕊️'}🔁</div><div class="rec-body"><div class="rec-name">${esc(x.description)} · ${fmt(x.amount)}</div><div class="rec-meta">${MZ_FREQ[x.frequency]} · ${x.endDate ? 'עד ' + mzGregStr(x.endDate) : 'ללא הגבלה'}</div></div><span class="rec-status ${x.active === false ? 'ended' : 'active'}">${x.active === false ? 'הסתיים' : 'פעיל'}</span>${mzDel('titheRec', x.id)}</div>`).join('') : '<div class="empty" style="padding:10px"><div class="empty-txt">אין רשומות קבועות</div></div>'}<div style="font-size:.68em;opacity:.5;margin-top:4px">להוספה: "הוספה" ← 🔁 קבועה</div></div><hr class="div">
   ${canEdit() ? '<div class="settings-section"><div class="settings-sec-title">אזור מסוכן</div><div class="danger-zone"><div class="danger-zone-title">⚠️ איפוס נתוני מעשרות</div><div class="danger-zone-sub">מחיקת כל ההכנסות, התרומות והרשומות הקבועות של המעשרות (שאר התקציב לא נפגע). פעולה בלתי הפיכה.</div><button class="btn btn-err btn-full" id="mz-clear">🗑️ מחק את כל נתוני המעשרות</button></div></div>' : ''}`;
 }
-V.maaser = () => { const sub = subTab.maaser || 'dash'; return `<div class="mz">${mzNav(sub)}<div class="mz-panel">${({ dash: mzDash, add: mzAddView, hist: mzHistView, notif: mzNotifView, set: mzSetView }[sub] || mzDash)()}</div></div>`; };
+V.maaser = () => { const sub = subTab.maaser || 'dash'; mzSnap(); return `<div class="mz">${mzNav(sub)}<div class="mz-panel">${({ dash: mzDash, add: mzAddView, hist: mzHistView, notif: mzNotifView, set: mzSetView }[sub] || mzDash)()}</div></div>`; };
 function mzConfirm(msg) { return new Promise(res => { const m = modal(`<h2>${esc(msg)}</h2><div class="row"><button class="b red" id="y">כן</button><button class="b sec" id="n">לא</button></div>`); m.querySelector('#y').onclick = () => { m.remove(); res(true); }; m.querySelector('#n').onclick = () => { m.remove(); res(false); }; }); }
 function mzQuick() {
   const m = modal(`<div class="mz"><div class="qp-title">⚡ תרומה מהירה</div><div class="form-group"><label class="form-label">סכום (₪)</label><input class="form-input" id="q-a" type="number" min="0" step="0.01" placeholder="0.00"></div><div class="form-group"><label class="form-label">תיאור (אופציונלי)</label><input class="form-input" id="q-d" type="text" placeholder="צדקה, ישיבה, עניים..."></div><button class="btn btn-pri btn-full" id="q-ok" style="padding:12px">שלם / תרום ✓</button><button class="btn btn-sec btn-full" id="q-no" style="margin-top:8px">ביטול</button></div>`);
