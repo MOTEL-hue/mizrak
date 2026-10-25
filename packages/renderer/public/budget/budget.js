@@ -4,7 +4,9 @@
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-const fmt = n => (Math.round((+n || 0) * 100) / 100).toLocaleString('he-IL') + ' ₪';
+// פרטיות: כשהסכומים מוסתרים כל סכום מוצג כ-••••. הסתרה קבועה (privAlways) חוסמת הצגה, וברירת מחדל (privDefault) קובעת רק את המצב ההתחלתי
+let amtHidden = null;
+const fmt = n => amtHidden ? '••••' : (Math.round((+n || 0) * 100) / 100).toLocaleString('he-IL') + ' ₪';
 const today = () => new Date().toISOString().slice(0, 10);
 
 /* ---------- שנים: עברית / לועזית ---------- */
@@ -524,7 +526,7 @@ V.more = () => {
   return `${healthCard()}${askCard()}${policiesCard()}${goalsCard()}<div class="card"><h2>תזכורות</h2>${table('reminders', [['title', 'מה'], ['date', 'מתי', '', r => { const n = nextDue(r); return n ? hebDateStr(n) + ' · ' + n.split('-').reverse().join('/') : ''; }], ['repeat', 'חזרה', '', r => ({ none: 'פעם', monthly: 'חודשי', yearly: 'שנתי' }[r.repeat || 'none'])]], live('reminders'))}${addBtn('reminders', 'תזכורת')}</div>
   <div class="card"><h2>הגדרות</h2><label for="s-fam">שם המשפחה</label><input id="s-fam" value="${esc(st.family)}">
   <label for="s-cal">ספירת שנים</label><select id="s-cal"><option value="heb" ${st.calendar === 'heb' ? 'selected' : ''}>עברית (תשפ"ז)</option><option value="greg" ${st.calendar === 'greg' ? 'selected' : ''}>לועזית (2026)</option></select>
-  <label for="s-fill">תזכורת חודשית למלא הוצאות והכנסות משתנות: ביום בחודש (ריק = בלי תזכורת)</label><input id="s-fill" type="number" min="1" max="28" value="${st.fillDay || ''}"><label for="s-dateby">חישוב החודש של תנועה לפי</label><select id="s-dateby"><option value="date" ${st.dateBy !== 'value' ? 'selected' : ''}>תאריך העסקה</option><option value="value" ${st.dateBy === 'value' ? 'selected' : ''}>תאריך הערך או החיוב (כשיש)</option></select><label for="s-pin">קוד כניסה (4 עד 8 ספרות, ריק = בלי קוד)</label><input id="s-pin" type="password" inputmode="numeric" maxlength="8" placeholder="${st.pin ? 'קוד מוגדר. כתבו קוד חדש כדי להחליף' : ''}" autocomplete="new-password">${st.pin ? '<label><input id="s-pinrm" type="checkbox"> ביטול הקוד</label>' : ''}<label for="s-tithe">אחוז מעשר</label><input id="s-tithe" type="number" value="${st.tithe}"><label><input id="s-call" type="checkbox" ${st.alertCall ? 'checked' : ''}> בהתראות תקציב לחייג גם בטלפון (לקו ולמספר שהוגדרו בפרופיל)</label><div class="row" style="margin-top:10px"><button class="b" id="s-save">שמירה</button></div></div>
+  <label for="s-fill">תזכורת חודשית למלא הוצאות והכנסות משתנות: ביום בחודש (ריק = בלי תזכורת)</label><input id="s-fill" type="number" min="1" max="28" value="${st.fillDay || ''}"><label for="s-dateby">חישוב החודש של תנועה לפי</label><select id="s-dateby"><option value="date" ${st.dateBy !== 'value' ? 'selected' : ''}>תאריך העסקה</option><option value="value" ${st.dateBy === 'value' ? 'selected' : ''}>תאריך הערך או החיוב (כשיש)</option></select><label><input type="checkbox" id="s-priv-a" ${st.privAlways ? 'checked' : ''}> הסתרת סכומים קבועה: הסכומים מוצגים כ-•••• תמיד, וגם הכפתור בכותרת לא חושף אותם</label><label><input type="checkbox" id="s-priv-d" ${st.privDefault ? 'checked' : ''}> הסתרת סכומים כברירת מחדל: בכל פתיחה הסכומים מוסתרים, ואפשר לחשוף אותם בכפתור בכותרת</label><label for="s-pin">קוד כניסה (4 עד 8 ספרות, ריק = בלי קוד)</label><input id="s-pin" type="password" inputmode="numeric" maxlength="8" placeholder="${st.pin ? 'קוד מוגדר. כתבו קוד חדש כדי להחליף' : ''}" autocomplete="new-password">${st.pin ? '<label><input id="s-pinrm" type="checkbox"> ביטול הקוד</label>' : ''}<label for="s-tithe">אחוז מעשר</label><input id="s-tithe" type="number" value="${st.tithe}"><label><input id="s-call" type="checkbox" ${st.alertCall ? 'checked' : ''}> בהתראות תקציב לחייג גם בטלפון (לקו ולמספר שהוגדרו בפרופיל)</label><div class="row" style="margin-top:10px"><button class="b" id="s-save">שמירה</button></div></div>
   ${ME.role === 'admin' ? '<div class="card" id="sumit-card"><h2>חיבור לסמיט (הפקת חשבוניות)</h2><div class="mut">טוען…</div></div>' : ''}
   ${window.BUDGET_PEOPLE ? `<div class="card"><h2>חיבורים</h2><div id="conn" class="mut">בודק…</div><p style="margin-top:10px"><a class="btn sec" href="/plans/limits/">📏 הגבלות לפי משתמש</a></p></div>` : ''}
   ${ME.role === 'admin' ? `<div class="card" id="mz-card"><h2>חיבור לתוכנת מזרק</h2><p class="mut">מזרק מושכת את התנועות מהבנקים וחברות האשראי ושולחת אותן לכאן אוטומטית. הדרך הקלה: לוחצים כאן על "יצירת קוד חיבור", מעתיקים את הקוד, ומדביקים אותו בתוכנה (יעד "התקציב שלי"). הקוד כולל גם את כתובת האתר וגם את המפתח.</p><label>שם החיבור</label><input id="mz-name" placeholder="למשל: המחשב בבית"><p><button class="b" id="mz-gen">יצירת קוד חיבור למזרק</button></p><div id="mz-code" class="mut"></div><p class="mut">או, אם יצרתם מפתח בתוך מזרק, מדביקים אותו כאן:</p><label>מפתח החיבור</label><input id="mz-key" dir="ltr" placeholder="mz_..." autocomplete="off"><p><button class="b" id="mz-add">חיבור</button></p><div id="mz-list" class="mut">טוען...</div></div>` : ''}
@@ -706,13 +708,35 @@ const catGroups = type => {
   const debts = inc ? [] : live('debts').map(debtCat);
   return [['חודשיות', monthly], ['שנתיות', yearly], ['חובות', debts], [EXTRA_G[0], miscCats()], [EXTRA_G[1], nbCats()]].map(([title, names]) => [title, [...new Set(names)]]).filter(g => g[1].length);
 };
-async function setTxCat(id, cat) {
+// שיוך סעיף לכמה תנועות יחד: רק להן, או גם כלל לתיאורים שלהן (לכל תיאור שונה כלל משלו) שחל גם על דומות שאין להן סעיף ועל עתידיות
+async function assignCats(ids, cat, after = render) {
+  const list = ids.map(id => S.data.tx.find(t => t.id === id && !t.del)).filter(Boolean);
+  if (!list.length) return after();
+  if (list.length === 1) return setTxCat(list[0].id, cat, after);
+  if (!cat) { list.forEach(t => put('tx', withCat(t, ''))); toast(`הסעיף הוסר מ-${list.length} תנועות`); return after(); }
+  const keys = [...new Set(list.map(t => normNote(t.note)).filter(k => k.length >= 3))];
+  const similar = () => S.data.tx.filter(x => !x.del && !x.cat && !list.includes(x) && keys.some(k => normNote(x.note).includes(k)));
+  const m = modal(`<h2>שיוך ${list.length} תנועות לסעיף "${esc(cat)}"</h2>
+    <div class="card"><h3>1. רק לתנועות שנבחרו</h3><button class="b" id="ac-one">עדכן רק את ${list.length} התנועות</button></div>
+    <div class="card"><h3>2. הגדרה כללית</h3><p class="mut">ייווצר כלל לכל תיאור שונה בנבחרות (${keys.length} כללים: ${esc(keys.slice(0, 4).join(', '))}${keys.length > 4 ? '…' : ''}). הכללים יחולו גם על ${similar().length} תנועות דומות שאין להן סעיף, ועל תנועות עתידיות.</p><button class="b" id="ac-rule" ${keys.length ? '' : 'disabled'}>צור כללים ועדכן</button></div>
+    <div class="row"><button class="b sec" id="ac-no">ביטול</button></div>`);
+  m.addEventListener('click', e => { if (e.target === m) after(); });
+  m.querySelector('#ac-no').onclick = () => { m.remove(); after(); };
+  m.querySelector('#ac-one').onclick = () => { list.forEach(t => put('tx', withCat(t, cat))); m.remove(); toast(`שויכו ${list.length} תנועות`); after(); };
+  m.querySelector('#ac-rule').onclick = () => {
+    const extra = similar(); let made = 0;
+    keys.forEach(k => { const ex = live('rules').find(r => normNote(r.key) === k); put('rules', ex ? { ...ex, cat } : { id: 'r-' + uid(), key: k, cat }); made++; });
+    list.concat(extra).forEach(t => put('tx', withCat(t, cat)));
+    m.remove(); toast(`נוצרו או עודכנו ${made} כללים, ושויכו ${list.length + extra.length} תנועות`); after();
+  };
+}
+async function setTxCat(id, cat, after = render) {
   const t = S.data.tx.find(x => x.id === id && !x.del);
-  if (!t) { toast('התנועה לא נמצאה, נסו לרענן את הדף'); return render(); }
+  if (!t) { toast('התנועה לא נמצאה, נסו לרענן את הדף'); return after(); }
   const note = String(t.note || '').slice(0, 60);
   if (!cat) {
-    if (!await ask(`להסיר את הסעיף מהתנועה "${note}"?`)) return render();
-    put('tx', withCat(t, cat)); toast('הסעיף הוסר מהתנועה'); return render();
+    if (!await ask(`להסיר את הסעיף מהתנועה "${note}"?`)) return after();
+    put('tx', withCat(t, cat)); toast('הסעיף הוסר מהתנועה'); return after();
   }
   const key0 = normNote(t.note);
   const m = modal(`<h2>שיוך לסעיף "${esc(cat)}"</h2><p class="mut">${esc(note)} · ${fmt(t.amount)}</p>
@@ -723,17 +747,17 @@ async function setTxCat(id, cat) {
       <p class="mut" id="sc-count"></p>
       <button class="b" id="sc-rule">צור כלל ועדכן את התנועות</button></div>
     <div class="row"><button class="b sec" id="sc-no">ביטול</button></div>`);
-  m.addEventListener('click', e => { if (e.target === m) render(); });
+  m.addEventListener('click', e => { if (e.target === m) after(); });
   const matches = () => { const k = normNote(m.querySelector('#sc-key').value), over = m.querySelector('#sc-over').checked; return k ? S.data.tx.filter(x => !x.del && x.id !== t.id && normNote(x.note).includes(k) && (over || !x.cat)) : []; };
   const upd = () => { const n = matches().length, k = normNote(m.querySelector('#sc-key').value); m.querySelector('#sc-count').textContent = k ? `הכלל יחול על התנועה הזו ועל עוד ${n} תנועות${m.querySelector('#sc-over').checked ? '' : ' שאין להן סעיף'}, וגם על תנועות עתידיות.` : 'כתבו מילה מהתיאור.'; m.querySelector('#sc-rule').disabled = !k; };
   m.querySelector('#sc-key').oninput = upd; m.querySelector('#sc-over').onchange = upd; upd();
-  m.querySelector('#sc-no').onclick = () => { m.remove(); render(); };
-  m.querySelector('#sc-one').onclick = () => { put('tx', withCat(t, cat)); m.remove(); toast('נשמר: הסעיף עודכן בתנועה הזו בלבד'); render(); };
+  m.querySelector('#sc-no').onclick = () => { m.remove(); after(); };
+  m.querySelector('#sc-one').onclick = () => { put('tx', withCat(t, cat)); m.remove(); toast('נשמר: הסעיף עודכן בתנועה הזו בלבד'); after(); };
   m.querySelector('#sc-rule').onclick = () => {
     const key = m.querySelector('#sc-key').value.trim(), list = matches(), nk = normNote(key), ex = live('rules').find(r => normNote(r.key) === nk);
     put('rules', ex ? { ...ex, cat } : { id: 'r-' + uid(), key, cat });
     put('tx', withCat(t, cat)); list.forEach(x => put('tx', withCat(x, cat)));
-    m.remove(); toast(`${ex ? 'הכלל עודכן' : 'נוצר כלל'}, והסעיף עודכן ב-${list.length + 1} תנועות`); render();
+    m.remove(); toast(`${ex ? 'הכלל עודכן' : 'נוצר כלל'}, והסעיף עודכן ב-${list.length + 1} תנועות`); after();
   };
 }
 V.txs = () => {
@@ -1115,8 +1139,8 @@ function openDD(key) {
         const v = box.querySelector('.dd-cat').value, ids = [...box.querySelectorAll('[data-ddt]:checked')].map(c => c.dataset.ddt);
         if (!ids.length) return toast('סמנו קודם את התנועות לשיוך (התיבות בצד הטבלה)');
         if (!v) { toast('בחרו סעיף מהרשימה שליד הכפתור'); const si = box.querySelector('.dd-cat').parentElement.querySelector('input'); (si || box.querySelector('.dd-cat')).focus(); return; }
-        const cat = v === '__none' ? '' : v; ids.forEach(id => { const t = S.data.tx.find(x => x.id === id); if (t) put('tx', withCat(t, cat)); });
-        picked = new Set(); toast(`שויכו ${ids.length} תנועות`); render(); draw();
+        const cat = v === '__none' ? '' : v;
+        assignCats(ids, cat, () => { picked = new Set(); render(); draw(); });
       });
     });
   };
@@ -1577,10 +1601,11 @@ function render() {
   const ys = years(); if (!curYear || !ys.includes(curYear)) curYear = ys[0];
   const vis = TABS.filter(t => ME.role !== 'home' || !['biz', 'debts'].includes(t[0]));
   if (tab !== 'cats' && tab !== 'imp' && !vis.find(t => t[0] === tab)) tab = 'home';
+  if (amtHidden === null || S.settings.privAlways) amtHidden = !!(S.settings.privAlways || S.settings.privDefault);
   const keepY = scrollY;
   $('#app').innerHTML = `<div class="bud-top"><h1>${esc(S.settings.family || 'תקציב המשפחה')}</h1>${window.BUDGET_EXIT ? `<a href="${esc(window.BUDGET_EXIT[0])}">${esc(window.BUDGET_EXIT[1])}</a>` : ''}
     <select id="yr">${ys.map(y => `<option value="${y}" ${y === curYear ? 'selected' : ''}>${yearLabel(y)}</option>`).join('')}</select>
-    <button id="cal" title="עברי / לועזי">${S.settings.calendar === 'heb' ? 'עברי' : 'לועזי'}</button></div>
+    <button id="cal" title="עברי / לועזי">${S.settings.calendar === 'heb' ? 'עברי' : 'לועזי'}</button><button id="eye" class="b sec" title="${amtHidden ? 'הצגת הסכומים' : 'הסתרת הסכומים'}">${amtHidden ? '🙈 הסכומים מוסתרים' : '👁 הסתרת סכומים'}</button></div>
     <div class="bud-body">${V[tab]()}</div>${canEdit() ? '<button class="fab" id="fab" title="הזנה מהירה">+</button>' : ''}
     <nav class="bud-nav">${vis.map(t => `<button class="${t[0] === tab || (t[0] === 'cls' && tab === 'cats') || (t[0] === 'txs' && tab === 'imp') ? 'on' : ''}" data-tab="${t[0]}"><b>${t[1]}</b>${t[2]}</button>`).join('')}</nav>`;
   bind();
@@ -1599,6 +1624,7 @@ function bind() {
   $('#mortgage-import')?.addEventListener('click', mortgageImport);
   R.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); scrollTo(0, 0); });
   $('#yr').onchange = e => { curYear = +e.target.value; render(); };
+  $('#eye').onclick = () => { if (S.settings.privAlways) return toast('הסתרה קבועה מופעלת. אפשר לבטל אותה בהגדרות'); amtHidden = !amtHidden; render(); };
   $('#cal').onclick = () => { S.settings.calendar = S.settings.calendar === 'heb' ? 'greg' : 'heb'; curYear = null; save(); render(); };
   $('#fab')?.addEventListener('click', quickAdd);
   R.querySelectorAll('[data-done]').forEach(b => b.onclick = () => { const p = live('plan').find(x => x.id === b.dataset.done); if (!p) return; put('tx', { id: uid(), type: p.kind === 'incomeVar' || p.kind === 'income' ? 'income' : 'expense', amount: +p.amount, cat: p.name, note: 'בוצע כמתוכנן', date: curMonth === today().slice(0, 7) ? today() : curMonth + '-15', acct: '' }); toast('נרשם: ' + p.name); render(); });
@@ -1645,7 +1671,7 @@ function bind() {
       ${ok(j.backup.cron_secret, 'גיבוי יומי אפשרי (נדרשת משימה ב-cron-job.org לכתובת /internal/backup/)', 'חסר CRON_SECRET ב-Render, בלעדיו אין גיבוי יומי')}
       <li>📦 ${j.docs} רשומות בתקציב · 👥 ${j.people} הרשאות אישיות</li></ul>`;
   }).catch(() => { $('#conn').textContent = 'לא ניתן לטעון את מצב החיבורים'; });
-  $('#s-save')?.addEventListener('click', () => { const s = S.settings; s.family = $('#s-fam').value; s.calendar = $('#s-cal').value; s.tithe = +$('#s-tithe').value || 10; s.alertCall = $('#s-call').checked; s.dateBy = $('#s-dateby').value; s.fillDay = Math.min(28, Math.max(0, +$('#s-fill').value || 0)); const pin = ($('#s-pin').value || '').trim();
+  $('#s-save')?.addEventListener('click', () => { const s = S.settings; s.family = $('#s-fam').value; s.calendar = $('#s-cal').value; s.tithe = +$('#s-tithe').value || 10; s.alertCall = $('#s-call').checked; s.dateBy = $('#s-dateby').value; s.fillDay = Math.min(28, Math.max(0, +$('#s-fill').value || 0)); s.privAlways = $('#s-priv-a').checked; s.privDefault = $('#s-priv-d').checked; amtHidden = s.privAlways || s.privDefault; const pin = ($('#s-pin').value || '').trim();
     if ($('#s-pinrm')?.checked) { delete s.pin; try { sessionStorage.removeItem('bud_ok'); } catch (e) { /* בלי אחסון */ } }
     const finish = () => { curYear = null; save(); render(); toast('נשמר'); };
     if (!pin) return finish();
