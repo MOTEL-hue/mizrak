@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { type Browser, type ElementHandle, type Frame, type Page } from 'puppeteer-core';
+import { type Browser, type Page } from 'puppeteer-core';
 import { userDataPath } from '@/app-globals';
 import { logAppEvent } from '/@/logging/operationLogger';
 import { clickByText, PORTAL_URL } from './pagiMortgages';
 
 // בדיקה חד-פעמית: בפאג"י תנועת העברה מופיעה כ"העברה מהחשבון" בלי שם המעביר או המקבל. כאן נשמר מה שהאתר מציג
 // בכל שלב (דף התנועות, ואחרי לחיצה על תנועת העברה), כדי לדעת איפה הפרטים נמצאים. הקובץ נכנס לקובץ האבחון.
-export const TRANSFER_DIAGNOSTIC_FILE = 'pagi-transfer-diagnostic-4.txt';
+export const TRANSFER_DIAGNOSTIC_FILE = 'pagi-transfer-diagnostic-5.txt';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const TRANSACTIONS_URL = `${PORTAL_URL.split('#')[0]}#/Online/OnAccountMngment/OnBalanceTrans/PrivateAccountFlow`;
@@ -50,52 +50,75 @@ async function visibleLines(page: Page) {
   return lines;
 }
 
-async function findTransferRow(page: Page): Promise<{ frame: Frame; row: ElementHandle<Element> } | undefined> {
-  for (const frame of page.frames()) {
-    const handle = await frame
-      .evaluateHandle(() => {
-        const cells = Array.from(document.querySelectorAll('td')).filter((td) => (td.textContent ?? '').trim().startsWith('העברה מהחשבון'));
-        return cells.at(-1)?.closest('tr') ?? null;
-      })
-      .catch(() => undefined);
-    const row = handle?.asElement();
-    if (row) return { frame, row: row as ElementHandle<Element> };
+const MAX_TRANSFERS = 6;
+
+// בתצוגת נייד (מסך צר) כל שורת "העברה מהחשבון" כוללת אייקון, ובלחיצה עליו נפתח חלון עם שם המקבל. מסמנים בדף את השורות והאייקונים
+async function markTransferRows(page: Page) {
+  let total = 0;
+  for (const frame of page.frames().filter((f) => !/netfree/i.test(f.url()))) {
+    total += await frame
+      .evaluate((max) => {
+        const dateRe = /\d{2}[./]\d{2}[./]\d{4}/;
+        const labels = Array.from(document.querySelectorAll<HTMLElement>('div, span, td, li, p')).filter(
+          (el) => el.children.length === 0 && /^העברה מהחשבון/.test((el.textContent ?? '').trim()),
+        );
+        let n = 0;
+        for (const label of labels) {
+          let row: HTMLElement | null = label;
+          while (row && !(dateRe.test(row.textContent ?? '') && row.querySelector('svg, img, button, a, [role=button], [onclick], i'))) row = row.parentElement;
+          if (!row || row.hasAttribute('data-probe-row') || n >= max) continue;
+          const icon = row.querySelector<HTMLElement>('button, a, [role=button], [onclick], svg, img, i');
+          row.setAttribute('data-probe-row', String(n));
+          icon?.setAttribute('data-probe-click', String(n));
+          n++;
+        }
+        return n;
+      }, MAX_TRANSFERS)
+      .catch(() => 0);
   }
-  return undefined;
+  return total;
 }
 
-// בדיקה: מה קורה כשלוחצים על שורת "העברה מהחשבון" בטבלת התנועות. נשמרים מבנה השורה, ומה שנוסף למסך אחרי כל לחיצה
+async function closeDialog(page: Page) {
+  await page.keyboard.press('Escape').catch(() => undefined);
+  await clickByText(page, '^(סגור|סגירה|×|✕|X)$');
+  await sleep(800);
+}
+
 export async function probePagiTransfers(browser: Browser, timeout: number) {
   let page: Page | undefined;
   const stages: string[] = [];
   const work = async () => {
     page = await browser.newPage();
     page.setDefaultTimeout(timeout);
+    await page.setViewport({ width: 420, height: 900, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     await page.goto(TRANSACTIONS_URL, { waitUntil: 'domcontentloaded' });
     await sleep(12000);
-    const found = await findTransferRow(page);
-    if (!found) {
-      stages.push(await snapshot(page, 'לא נמצאה שורת "העברה מהחשבון"'));
+    const count = await markTransferRows(page);
+    stages.push(`## שורות העברה שנמצאו בתצוגת נייד: ${count}`);
+    if (!count) {
+      stages.push(await snapshot(page, 'תצוגת נייד: המסך'));
       return;
     }
-    const html = await found.row.evaluate((el) => el.outerHTML);
-    stages.push(`## מבנה השורה\n${mask(html).replace(/\s+/g, ' ').slice(0, 4000)}`);
-    const targets = await found.row.$$('td, a, img, button, span[onclick], div[onclick]');
-    const seen = new Set(await visibleLines(page));
-    for (const [index, target] of [found.row, ...targets].entries()) {
-      await target.click().catch(() => undefined);
-      await sleep(3000);
-      const now = await visibleLines(page);
-      const added = [...now].filter((l) => !seen.has(l));
-      added.forEach((l) => seen.add(l));
-      const tag = await target.evaluate((el) => `${el.tagName} ${(el.textContent ?? '').trim().slice(0, 30)}`).catch(() => '?');
-      stages.push(`## לחיצה ${index} (${mask(tag)})\n${added.length ? mask(added.join(' | ')).slice(0, 2500) : '(לא נוסף דבר)'}`);
+    for (let i = 0; i < count; i++) {
+      for (const frame of page.frames()) {
+        const row = await frame.$(`[data-probe-row="${i}"]`);
+        if (!row) continue;
+        const rowText = mask(await row.evaluate((el) => (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 160)));
+        if (i === 0) stages.push(`## מבנה שורה ראשונה\n${mask(await row.evaluate((el) => el.outerHTML)).replace(/\s+/g, ' ').slice(0, 3500)}`);
+        const before = await visibleLines(page);
+        const icon = await frame.$(`[data-probe-click="${i}"]`);
+        await (icon ?? row).click().catch(() => undefined);
+        await sleep(2500);
+        const added = [...(await visibleLines(page))].filter((l) => !before.has(l));
+        stages.push(`## העברה ${i + 1}: ${rowText}\n${added.length ? mask(added.join(' | ')).slice(0, 1500) : '(לא נפתח דבר)'}`);
+        await closeDialog(page);
+        break;
+      }
     }
-    const pages = await browser.pages();
-    stages.push(`## חלונות פתוחים: ${pages.map((p) => p.url().split('?')[0].slice(-60)).join(' , ')}`);
   };
   try {
-    await Promise.race([work(), sleep(100_000)]);
+    await Promise.race([work(), sleep(110_000)]);
   } catch (e) {
     stages.push(`שגיאה: ${(e as Error).message}`);
   } finally {
