@@ -20,10 +20,17 @@ vi.mock('electron', () => {
   bw.prototype.isMinimized = vi.fn();
   bw.prototype.focus = vi.fn();
   bw.prototype.restore = vi.fn();
+  bw.prototype.setTitle = vi.fn();
+  bw.prototype.isVisible = vi.fn();
+  bw.prototype.show = vi.fn();
+  bw.prototype.hide = vi.fn();
 
-  const app: Pick<Electron.App, 'getAppPath'> = {
+  const app: Pick<Electron.App, 'getAppPath' | 'getVersion'> = {
     getAppPath(): string {
       return '';
+    },
+    getVersion(): string {
+      return '0.0.0';
     },
   };
 

@@ -1,4 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// בדיקות רצות בלי Electron: מחליפים את נתיבי האפליקציה בנתיבים זמניים
+vi.mock('@/logging/logger', () => ({ default: { info: () => undefined, warn: () => undefined, error: () => undefined, debug: () => undefined } }));
+vi.mock('/@/logging/operationLogger', () => ({ logAppEvent: () => undefined }));
+vi.mock('@/app-globals', () => ({
+  App: { getPath: () => '/tmp', setPath: () => undefined },
+  userDataPath: '/tmp',
+  configFilePath: '/tmp/config.encrypt',
+  defaultCsvPath: '/tmp/transaction.csv',
+  defaultJsonPath: '/tmp/transaction.json',
+}));
+
 import { parseMortgageText } from './pagiMortgages';
 
 const SAMPLE = `מספר משנה: 1

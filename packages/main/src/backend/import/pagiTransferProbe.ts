@@ -25,6 +25,16 @@ const isoFromIsraeli = (text: string) => {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
 };
 
+// כל שורות הטקסט שמוצגות כרגע בכל המסגרות (בלי הפרסומות של נטפרי)
+async function visibleLines(page: Page) {
+  const lines = new Set<string>();
+  for (const frame of page.frames().filter((f) => !/netfree/i.test(f.url()))) {
+    const text = await frame.evaluate(() => document.body?.innerText ?? '').catch(() => '');
+    text.split('\n').map((l) => l.trim()).filter(Boolean).forEach((l) => lines.add(l));
+  }
+  return lines;
+}
+
 async function markTransferLinks(page: Page) {
   let total = 0;
   for (const frame of page.frames().filter((f) => !/netfree/i.test(f.url()))) {
@@ -80,13 +90,32 @@ export async function readPagiTransferDetails(browser: Browser, timeout: number)
       for (const frame of page.frames()) {
         const link = await frame.$(`a[data-pagi-transfer="${i}"]`);
         if (!link) continue;
-        await link.click().catch(() => undefined);
+        if (i === 0) log.push(`קישור ראשון: ${mask(await link.evaluate((el) => el.outerHTML)).slice(0, 400)}`);
         let details: TransferDetail[] = [];
-        for (let attempt = 0; attempt < 8 && !details.length; attempt++) {
-          await sleep(1000);
-          details = await readDialog(page);
+        let how = '';
+        // כמה דרכים ללחוץ: לחיצה אמיתית, לחיצה מהדף, ואירועי עכבר מלאים (חלק מהאתרים מגיבים רק לאחד מהם)
+        const clicks: [string, () => Promise<unknown>][] = [
+          ['לחיצה', () => link.click()],
+          ['לחיצה בדף', () => link.evaluate((el) => (el as HTMLElement).click())],
+          ['אירועי עכבר', () => link.evaluate((el) => ['mousedown', 'mouseup', 'click'].forEach((type) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }))))],
+        ];
+        for (const [name, doClick] of clicks) {
+          await doClick().catch(() => undefined);
+          for (let attempt = 0; attempt < 5 && !details.length; attempt++) {
+            await sleep(1000);
+            details = await readDialog(page);
+          }
+          if (details.length) {
+            how = name;
+            break;
+          }
         }
-        log.push(`העברה ${i + 1}: ${details.length ? 'נקראה' : 'החלון לא נפתח'}`);
+        if (!details.length) {
+          const lines = [...(await visibleLines(page))].filter((l) => /פירוט|העברות|מהות/.test(l));
+          log.push(`העברה ${i + 1}: לא נקראה. שורות רלוונטיות במסך: ${mask(lines.join(' | ')).slice(0, 300) || 'אין'}`);
+        } else {
+          log.push(`העברה ${i + 1}: נקראה (${how})`);
+        }
         found.push(...details);
         await clickByText(page, '^סגור$');
         await sleep(700);
@@ -101,7 +130,7 @@ export async function readPagiTransferDetails(browser: Browser, timeout: number)
   } finally {
     await page?.close().catch(() => undefined);
     try {
-      const sample = found[0] ? `\nדוגמה: ${found[0].date} ${found[0].amount} ${mask(found[0].name)}` : '';
+      const sample = found[0] ? `\nדוגמה: ${found[0].date} ${found[0].amount} ${found[0].name.replace(/\S+/g, (w) => `${w[0]}.`)}` : '';
       fs.writeFileSync(path.join(userDataPath, TRANSFER_DIAGNOSTIC_FILE), log.join('\n') + sample);
       logAppEvent('PAGI_TRANSFER_DETAILS_DONE', { transfers: found.length });
     } catch {

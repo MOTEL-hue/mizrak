@@ -4,6 +4,7 @@ import path from 'path';
 import { budgetTick, startBudgetBridge } from '@/backend/budgetBridge';
 import { isScrapeRunning } from '@/backend';
 import { startAutoUpdate } from './handlers/updater';
+import { backupBudgetDocsIfDue } from './backend/budgetDocs/docBackup';
 import { restoreOrCreateWindow } from '/@/mainWindow';
 import { logAppEvent } from './logging/operationLogger';
 import { setQuitting } from './quitState';
@@ -68,5 +69,11 @@ export async function startBackgroundMode() {
   }
 
   startBudgetBridge();
+  const backup = () =>
+    void backupBudgetDocsIfDue()
+      .then((name) => name && logAppEvent('BUDGET_BACKUP_DONE', { name }))
+      .catch((e) => logAppEvent('BUDGET_BACKUP_FAILED', { errorMessage: (e as Error).message }));
+  backup();
+  setInterval(backup, 24 * 60 * 60 * 1000);
   if (app.isPackaged) startAutoUpdate(isScrapeRunning, () => void restoreOrCreateWindow());
 }
