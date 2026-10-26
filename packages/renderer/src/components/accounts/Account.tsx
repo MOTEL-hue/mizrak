@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import Badge from 'react-bootstrap/Badge';
 import Form from 'react-bootstrap/Form';
 import piggyBank from '../../assets/piggy-bank.svg';
-import { type Account as AccountType, type ExporterEndEvent } from '../../types';
+import { AccountStatus, type Account as AccountType, type ExporterEndEvent } from '../../types';
 import styles from './Account.module.css';
 import StatusIndicator from './StatusIndicator';
 
@@ -17,6 +17,27 @@ interface AccountProps {
   actionButtons?: ActionButton[];
   onToggleActive?: () => void;
   disabled?: boolean;
+}
+
+// הודעות ההתקדמות של הסורק כפי שהן מגיעות, בעברית פשוטה
+const STEP_TEXT: Record<string, string> = {
+  INITIALIZING: 'מכין את הדפדפן',
+  START_SCRAPING: 'מתחיל',
+  LOGGING_IN: 'מתחבר לאתר הבנק',
+  LOGIN_SUCCESS: 'התחבר, מושך תנועות',
+  LOGIN_FAILED: 'ההתחברות נכשלה',
+  CHANGE_PASSWORD: 'האתר מבקש להחליף סיסמה',
+  END_SCRAPING: 'סיים למשוך תנועות',
+  TERMINATING: 'מסיים וסוגר את הדפדפן',
+  READING_MORTGAGE: 'קורא את פירוט המשכנתא',
+  READING_TRANSFERS: 'קורא שמות מקבלים בהעברות',
+};
+
+export function stepText(message?: string) {
+  if (!message) return '';
+  const transfer = /^READING_TRANSFER:(\d+)\/(\d+)$/.exec(message);
+  if (transfer) return `קורא העברה ${transfer[1]} מתוך ${transfer[2]}`;
+  return STEP_TEXT[message] ?? '';
 }
 
 export default function Account({ account, actionButtons, onToggleActive, disabled }: AccountProps) {
@@ -40,6 +61,9 @@ export default function Account({ account, actionButtons, onToggleActive, disabl
       <img src={account.logo || piggyBank} alt={account.displayName} height={29} width={29} />
       <div className={styles.nameWrapper}>
         <div className={styles.name}>{account.displayName}</div>
+        {account.status === AccountStatus.IN_PROGRESS && stepText(account.logs.at(-1)?.message) && (
+          <div className={styles.step}>{stepText(account.logs.at(-1)?.message)}</div>
+        )}
       </div>
       {actionButtons?.map(({ icon, clickHandler, tooltipText }) => (
         <img

@@ -75,7 +75,11 @@ async function readDialog(page: Page): Promise<TransferDetail[]> {
   return [];
 }
 
-export async function readPagiTransferDetails(browser: Browser, timeout: number): Promise<TransferDetail[]> {
+export async function readPagiTransferDetails(
+  browser: Browser,
+  timeout: number,
+  onStep?: (done: number, total: number) => void,
+): Promise<TransferDetail[]> {
   let page: Page | undefined;
   const found: TransferDetail[] = [];
   const log: string[] = [];
@@ -87,6 +91,7 @@ export async function readPagiTransferDetails(browser: Browser, timeout: number)
     const count = await markTransferLinks(page);
     log.push(`קישורי "העברה מהחשבון" שנמצאו: ${count}`);
     for (let i = 0; i < count; i++) {
+      onStep?.(i + 1, count);
       for (const frame of page.frames()) {
         const link = await frame.$(`a[data-pagi-transfer="${i}"]`);
         if (!link) continue;

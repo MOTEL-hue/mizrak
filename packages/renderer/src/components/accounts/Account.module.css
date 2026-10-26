@@ -35,7 +35,8 @@
 
 .nameWrapper {
   display: flex;
-  justify-content: flex-start;
+  flex-direction: column;
+  justify-content: center;
   flex: 1;
   margin-right: 7px;
 }
@@ -64,4 +65,9 @@
 
 .newTxnsIndicator {
   margin-right: 8px;
+}
+
+.step {
+  font-size: 0.78rem;
+  opacity: 0.75;
 }

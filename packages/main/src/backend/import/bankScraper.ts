@@ -162,9 +162,15 @@ export async function scrape(
   }
   if (ownBrowser) {
     // פאג"י חוסם כניסה שנייה, ולכן את המשכנתא קוראים עכשיו, באותו דפדפן שכבר מחובר
-    if (scrapeResult.success && companyId === 'pagi') await grabMortgagesFromLoggedInBrowser(ownBrowser, Math.max(timeout, 150_000));
     if (scrapeResult.success && companyId === 'pagi') {
-      const details = await readPagiTransferDetails(ownBrowser, 60_000);
+      emitProgressEvent(companyId, 'READING_MORTGAGE');
+      await grabMortgagesFromLoggedInBrowser(ownBrowser, Math.max(timeout, 150_000));
+    }
+    if (scrapeResult.success && companyId === 'pagi') {
+      emitProgressEvent(companyId, 'READING_TRANSFERS');
+      const details = await readPagiTransferDetails(ownBrowser, 60_000, (done, total) =>
+        emitProgressEvent(companyId, `READING_TRANSFER:${done}/${total}`),
+      );
       attachRecipients(scrapeResult.accounts as Parameters<typeof attachRecipients>[0], details);
     }
     await ownBrowser.close().catch(() => undefined);
