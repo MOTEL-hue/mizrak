@@ -82,9 +82,15 @@ export async function downloadResumable(opts: {
       if (res.status !== 200 && res.status !== 206) throw new Error(`השרת החזיר ${res.status}`);
       const resumed = res.status === 206 && start > 0;
       if (res.total) total = res.total;
-      await pipeToFile(res, partFile, resumed, (size) => {
-        if (total) onProgress?.(Math.round((size / total) * 100));
-      });
+      // התקדמות תוך כדי ההורדה (ולא רק בסופה), כדי שהסרגל יזוז
+      const ticker = setInterval(() => {
+        if (total) onProgress?.(Math.min(99, Math.round((sizeOf(partFile) / total) * 100)));
+      }, 500);
+      try {
+        await pipeToFile(res, partFile, resumed, () => undefined);
+      } finally {
+        clearInterval(ticker);
+      }
     } catch (e) {
       log?.(`הורדה נקטעה: ${(e as Error).message}`);
     }

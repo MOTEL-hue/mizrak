@@ -27,6 +27,21 @@ describe('downloadResumable', () => {
     expect(fs.readFileSync(part).equals(data)).toBe(true);
   });
 
+  it('מדווח התקדמות תוך כדי ההורדה', async () => {
+    const data = crypto.randomBytes(100_000);
+    const sha = crypto.createHash('sha512').update(data).digest('base64');
+    const part = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dl-')), 'f.part');
+    const seen: number[] = [];
+    const slow: FetchRange = async (start) => {
+      const body = new Readable({ read() {} });
+      body.push(data.subarray(start, start + 50_000));
+      setTimeout(() => body.push(null), 700);
+      return { status: start > 0 ? 206 : 200, total: data.length, body };
+    };
+    await downloadResumable({ fetchRange: slow, partFile: part, sha512: sha, retryDelayMs: 0, onProgress: (p) => seen.push(p) });
+    expect(seen.some((p) => p > 0 && p < 100)).toBe(true);
+  });
+
   it('מתחיל מחדש כשסכום הבדיקה לא תואם', async () => {
     const data = crypto.randomBytes(1000);
     const part = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dl-')), 'f.part');
