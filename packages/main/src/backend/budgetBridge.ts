@@ -81,7 +81,7 @@ async function pushMortgages(
   try {
     const chromePath = config.scraping.chromiumPath || (await getChrome(userDataPath, () => undefined));
     const tracks =
-      inSession ??
+      takePendingMortgages() ??
       (await scrapePagiMortgages({
         credentials: account.loginFields as Record<string, string>,
         chromePath,
@@ -231,7 +231,7 @@ export async function pullMortgagesInApp(config: Awaited<ReturnType<typeof getCo
   try {
     const chromePath = config.scraping.chromiumPath || (await getChrome(userDataPath, () => undefined));
     const tracks =
-      takePendingMortgages() ??
+      inSession ??
       (await scrapePagiMortgages({
         credentials: account.loginFields as Record<string, string>,
         chromePath,
