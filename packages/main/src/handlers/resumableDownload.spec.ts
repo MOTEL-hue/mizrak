@@ -36,6 +36,17 @@ describe('downloadResumable', () => {
 });
 
 describe('downloadParallel', () => {
+  it('נכשל מיד כשהשרת לא תומך בחלקים (200 במקום 206)', async () => {
+    const part = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dl-')), 'f.part');
+    const body = new Readable({ read() {} });
+    body.push(null);
+    const started = Date.now();
+    await expect(
+      downloadParallel({ fetchRange: async () => ({ status: 200, total: 100, body }), partFile: part, sha512: 'x', total: 100, segments: 2, retryDelayMs: 1000 }),
+    ).rejects.toThrow('206');
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+
   const rangeServer = (data: Buffer, cut: number): FetchRange => async (start, end) => {
     const last = Math.min(end ?? data.length - 1, start + cut - 1);
     const body = new Readable({ read() {} });

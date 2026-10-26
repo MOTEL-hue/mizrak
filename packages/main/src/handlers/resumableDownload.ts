@@ -97,6 +97,8 @@ export async function downloadResumable(opts: {
 
 // הורדה במספר חיבורים במקביל: כל חלק מהקובץ יורד בנפרד (עם המשך מהמקום שנקטע), ובסוף מחברים ובודקים את סכום הבדיקה.
 // חיבור בודד מוגבל לפעמים למהירות נמוכה מאוד (למשל בסינון תוכן), וכמה חיבורים יחד מהירים בהרבה.
+class RangeUnsupportedError extends Error {}
+
 async function downloadSegment(opts: { fetchRange: FetchRange; file: string; from: number; to: number; log?: (m: string) => void; retryDelayMs: number }) {
   const { fetchRange, file, from, to, log, retryDelayMs } = opts;
   const length = to - from + 1;
@@ -106,9 +108,14 @@ async function downloadSegment(opts: { fetchRange: FetchRange; file: string; fro
     if (start >= length) return;
     try {
       const res = await fetchRange(from + start, to);
-      if (res.status !== 206) throw new Error(`השרת החזיר ${res.status}`);
+      if (res.status !== 206) {
+        res.body.destroy();
+        // השרת (או הסינון בדרך) לא תומך בהורדה בחלקים: אין טעם לנסות שוב, עוברים להורדה רגילה
+        throw new RangeUnsupportedError(`השרת החזיר ${res.status} במקום 206`);
+      }
       await pipeToFile(res, file, true, () => undefined);
     } catch (e) {
+      if (e instanceof RangeUnsupportedError) throw e;
       log?.(`חלק הורדה נקטע: ${(e as Error).message}`);
     }
     const now = sizeOf(file);
@@ -133,6 +140,7 @@ export async function downloadParallel(opts: {
   const size = Math.ceil(total / segments);
   const ranges = Array.from({ length: segments }, (_, i) => ({ from: i * size, to: Math.min(total, (i + 1) * size) - 1 })).filter((r) => r.from < total);
   const files = ranges.map((_, i) => `${partFile}.seg${i}`);
+  log?.(`הורדה במקביל: ${ranges.length} חלקים, ${total} בייט`);
   const ticker = setInterval(() => {
     const done = files.reduce((sum, f) => sum + sizeOf(f), 0);
     onProgress?.(Math.min(99, Math.round((done / total) * 100)));
