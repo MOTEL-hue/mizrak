@@ -107,7 +107,7 @@ export async function readPagiTransferDetails(
     let tableSeen = false;
     for (let waited = 0; waited < 60_000 && !tableSeen; waited += 3000) {
       await sleep(3000);
-      tableSeen = (await visibleLines(page)).has('אסמכתא');
+      tableSeen = [...(await visibleLines(page))].some((line) => line.includes('אסמכתא'));
     }
     log.push(tableSeen ? 'טבלת התנועות נטענה' : 'טבלת התנועות לא נטענה תוך דקה');
     count = await markTransferLinks(page);
