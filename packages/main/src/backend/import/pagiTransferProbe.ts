@@ -134,7 +134,8 @@ export async function readPagiTransferDetails(
     log.push(tableSeen ? 'טבלת התנועות נטענה' : 'טבלת התנועות לא נטענה תוך דקה');
     count = await markTransferLinks(page);
     log.push(`קישורי "העברה מהחשבון" שנמצאו: ${count}`);
-    for (let i = 0; i < count; i++) {
+    let stop = false;
+    for (let i = 0; i < count && !stop; i++) {
       onStep?.(i + 1, count);
       for (const frame of page.frames()) {
         const link = await frame.$(`a[data-pagi-transfer="${i}"]`);
@@ -176,6 +177,11 @@ export async function readPagiTransferDetails(
           log.push(`העברה ${i + 1}: נקראה (${how})`);
         }
         found.push(...details);
+        // אם הקישור הראשון לא נפתח בשום דרך, אין טעם להמשיך ולבזבז זמן על השאר
+        if (!details.length && i === 0) {
+          log.push('הקישור הראשון לא נפתח: מפסיקים');
+          stop = true;
+        }
         await clickByText(page, '^סגור$');
         await sleep(700);
         break;
@@ -183,7 +189,7 @@ export async function readPagiTransferDetails(
     }
   };
   try {
-    await Promise.race([work(), sleep(120_000)]);
+    await Promise.race([work(), sleep(60_000)]);
   } catch (e) {
     log.push(`שגיאה: ${(e as Error).message}`);
   } finally {

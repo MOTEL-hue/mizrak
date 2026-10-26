@@ -317,7 +317,7 @@ export async function grabMortgagesFromLoggedInBrowser(browser: Browser, timeout
     work.catch(() => undefined);
     const tracks = await Promise.race([
       work,
-      sleep(150_000).then(() => {
+      sleep(100_000).then(() => {
         throw new Error('קריאת המשכנתא לקחה יותר מדי זמן');
       }),
     ]);

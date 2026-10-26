@@ -13,7 +13,7 @@ import { summarizeFailures } from './bridgeFormat';
 import { ProgressTracker } from './syncProgress';
 import { syncDocs } from './budgetDocs/docSyncClient';
 import { BOI_RATES_URLS } from './budgetDocs/rates';
-import { markMortgageOk, markMortgageTry, shouldReadMortgage } from './import/mortgageSchedule';
+import { isMortgageForced, markMortgageOk, markMortgageTry, shouldReadMortgage } from './import/mortgageSchedule';
 import { logAppEvent } from '/@/logging/operationLogger';
 
 // הגשר לדף התקציב: התוכנה רצה ברקע, שואלת את האתר אם ביקשו סנכרון (או שהגיע הזמן לסנכרון אוטומטי),
@@ -42,7 +42,10 @@ async function pushRates(base: string, token: string) {
   // הכתובת הראשונה שהשרת מקבל ממנה נתונים תקינים מנצחת
   for (const url of BOI_RATES_URLS) {
     try {
-      const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20_000) });
+      const response = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(20_000),
+      });
       if (!response.ok) {
         logAppEvent('BUDGET_RATES_FAILED', { url, status: response.status });
         continue;
@@ -63,7 +66,9 @@ async function pushMortgages(
   config: Awaited<ReturnType<typeof getConfig>>,
   tracker: ProgressTracker,
 ): Promise<string | null> {
-  const account = config.scraping.accountsToScrape.find((a) => (a.key === 'pagi' || a.key === 'beinleumi') && a.active !== false);
+  const account = config.scraping.accountsToScrape.find(
+    (a) => (a.key === 'pagi' || a.key === 'beinleumi') && a.active !== false,
+  );
   if (!account) return null;
   const started = Date.now();
   const report = () => {
@@ -76,14 +81,14 @@ async function pushMortgages(
   try {
     const chromePath = config.scraping.chromiumPath || (await getChrome(userDataPath, () => undefined));
     const tracks =
-      takePendingMortgages() ??
+      inSession ??
       (await scrapePagiMortgages({
-      credentials: account.loginFields as Record<string, string>,
-      chromePath,
-      showBrowser: config.scraping.showBrowser,
-      timeout: config.scraping.timeout,
-      profileKey: account.key,
-    }));
+        credentials: account.loginFields as Record<string, string>,
+        chromePath,
+        showBrowser: config.scraping.showBrowser,
+        timeout: config.scraping.timeout,
+        profileKey: account.key,
+      }));
     await saveMortgages(tracks).catch(() => undefined);
     const result = await call(base, token, 'mortgage', { tracks });
     logAppEvent('BUDGET_MORTGAGE_PUSHED', { status: result.status, tracks: tracks.length });
@@ -116,8 +121,15 @@ export async function budgetTick() {
   try {
     const poll = await call(base, token, 'sync-poll');
     if (!poll.ok) return;
-    await syncDocs(base, token).catch((e) => logAppEvent('BUDGET_DOCS_SYNC_FAILED', { errorMessage: (e as Error).message }));
-    const { pending, due, rates_due: ratesDue, mode } = (await poll.json()) as {
+    await syncDocs(base, token).catch((e) =>
+      logAppEvent('BUDGET_DOCS_SYNC_FAILED', { errorMessage: (e as Error).message }),
+    );
+    const {
+      pending,
+      due,
+      rates_due: ratesDue,
+      mode,
+    } = (await poll.json()) as {
       pending?: boolean;
       due?: boolean;
       rates_due?: boolean;
@@ -152,7 +164,9 @@ export async function budgetTick() {
       config.scraping.accountsToScrape.filter((a) => a.active !== false).map((a) => a.key),
     );
     // התקדמות מיידית (גם אם כל החשבונות נלקחים מהשמור ואין אירועים), כדי שדף התקציב לא יציג רק "מסנכרן"
-    call(base, token, 'sync-report', { status: 'progress', ...tracker.snapshot(), text: 'מתחיל לסרוק' }).catch(() => undefined);
+    call(base, token, 'sync-report', { status: 'progress', ...tracker.snapshot(), text: 'מתחיל לסרוק' }).catch(
+      () => undefined,
+    );
     let lastSent = 0;
     events.onAny((eventName, data) => {
       tracker.onEvent(String(eventName), data as { message?: string; percent?: number });
@@ -167,9 +181,18 @@ export async function budgetTick() {
       if (mortgageError) failures.push({ company: 'pagi', message: `משכנתא: ${mortgageError}` });
       const summary = summarizeFailures(failures);
       // כשחלק מהחשבונות נכשלו, מה שהצליח כבר נשלח לתקציב, ולכן הדיווח הוא "חלקי" ולא כשל מלא
-      const allFailed = failures.length > 0 && failures.length >= config.scraping.accountsToScrape.filter((a) => a.active !== false).length;
-      await call(base, token, 'sync-report', { status: summary ? (allFailed ? 'error' : 'partial') : 'ok', message: summary });
-      if (summary) notifyProblem('תקציב: הסנכרון נכשל בחלק מהחשבונות', `${summary}. לפרטים ולמה לעשות: פתח את תקציב ← עזרה והסברים.`);
+      const allFailed =
+        failures.length > 0 &&
+        failures.length >= config.scraping.accountsToScrape.filter((a) => a.active !== false).length;
+      await call(base, token, 'sync-report', {
+        status: summary ? (allFailed ? 'error' : 'partial') : 'ok',
+        message: summary,
+      });
+      if (summary)
+        notifyProblem(
+          'תקציב: הסנכרון נכשל בחלק מהחשבונות',
+          `${summary}. לפרטים ולמה לעשות: פתח את תקציב ← עזרה והסברים.`,
+        );
       logAppEvent('BUDGET_SYNC_DONE', { failed: failures.length });
     } catch (e) {
       const message = toHebrewError((e as Error).message);
@@ -192,22 +215,30 @@ export function startBudgetBridge() {
 
 // משיכת משכנתא מהכפתור "הפעל" בתוך התוכנה: נשמרת מקומית להצגה, ונשלחת לתקציב אם הוא מחובר
 export async function pullMortgagesInApp(config: Awaited<ReturnType<typeof getConfig>>): Promise<string | null> {
-  const account = config.scraping.accountsToScrape.find((a) => (a.key === 'pagi' || a.key === 'beinleumi') && a.active !== false);
+  const account = config.scraping.accountsToScrape.find(
+    (a) => (a.key === 'pagi' || a.key === 'beinleumi') && a.active !== false,
+  );
   if (!account) return null;
   // המשכנתא לא נקראת בכל סנכרון (ראו mortgageSchedule)
   if (!shouldReadMortgage()) return null;
   markMortgageTry();
+  // השיטה השנייה (כניסה נפרדת) איטית מאוד ונכשלת לעיתים קרובות: מריצים אותה רק בבקשה ידנית, וכשהקריאה בתוך הסנכרון נכשלה לא מעכבים את הסנכרון
+  const inSession = takePendingMortgages();
+  if (!inSession && !isMortgageForced()) {
+    logAppEvent('MORTGAGE_FALLBACK_SKIPPED');
+    return null;
+  }
   try {
     const chromePath = config.scraping.chromiumPath || (await getChrome(userDataPath, () => undefined));
     const tracks =
       takePendingMortgages() ??
       (await scrapePagiMortgages({
-      credentials: account.loginFields as Record<string, string>,
-      chromePath,
-      showBrowser: config.scraping.showBrowser,
-      timeout: config.scraping.timeout,
-      profileKey: account.key,
-    }));
+        credentials: account.loginFields as Record<string, string>,
+        chromePath,
+        showBrowser: config.scraping.showBrowser,
+        timeout: config.scraping.timeout,
+        profileKey: account.key,
+      }));
     await saveMortgages(tracks);
     markMortgageOk();
     logAppEvent('MORTGAGE_PULLED_IN_APP', { tracks: tracks.length });
@@ -229,7 +260,9 @@ export function reportAppProgress(config: Awaited<ReturnType<typeof getConfig>>,
   try {
     const base = budgetBase(budget.options.siteUrl);
     const token = budget.options.token;
-    const tracker = new ProgressTracker(config.scraping.accountsToScrape.filter((a) => a.active !== false).map((a) => a.key));
+    const tracker = new ProgressTracker(
+      config.scraping.accountsToScrape.filter((a) => a.active !== false).map((a) => a.key),
+    );
     let lastSent = 0;
     events.onAny((eventName, data) => {
       tracker.onEvent(String(eventName), data as { message?: string; percent?: number });
@@ -256,7 +289,10 @@ export async function reportAppRun(
     const body =
       state === 'running'
         ? { status: 'running' }
-        : { status: state.problems === 0 ? 'ok' : state.problems >= state.total ? 'error' : 'partial', message: state.message };
+        : {
+            status: state.problems === 0 ? 'ok' : state.problems >= state.total ? 'error' : 'partial',
+            message: state.message,
+          };
     await call(base, budget.options.token, 'sync-report', body);
   } catch (e) {
     logAppEvent('BUDGET_APP_REPORT_FAILED', { errorMessage: (e as Error).message });

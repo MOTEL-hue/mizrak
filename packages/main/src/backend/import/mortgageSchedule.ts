@@ -49,6 +49,8 @@ export const setMortgageForced = (value: boolean) => {
   forced = value;
 };
 
+export const isMortgageForced = () => forced;
+
 export function shouldReadMortgage(now = Date.now()): boolean {
   if (forced) return true;
   const { mode, everyDays, lastOkAt, lastTryAt } = getMortgageSchedule();
