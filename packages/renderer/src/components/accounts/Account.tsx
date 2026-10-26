@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite';
 import { useMemo } from 'react';
 import Badge from 'react-bootstrap/Badge';
 import Form from 'react-bootstrap/Form';
@@ -40,7 +41,8 @@ export function stepText(message?: string) {
   return STEP_TEXT[message] ?? '';
 }
 
-export default function Account({ account, actionButtons, onToggleActive, disabled }: AccountProps) {
+// observer: השלב הנוכחי נקרא מרשימת הלוגים של החשבון, והיא משתנה בלי שהסטטוס משתנה
+function Account({ account, actionButtons, onToggleActive, disabled }: AccountProps) {
   const containerStyles = useMemo(() => {
     const s = [styles.container];
     if (!account.active) s.push(styles.notActive);
@@ -95,3 +97,5 @@ export default function Account({ account, actionButtons, onToggleActive, disabl
     </div>
   );
 }
+
+export default observer(Account);
