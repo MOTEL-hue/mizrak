@@ -553,7 +553,7 @@ V.more = () => {
   <div id="pin-form" ${st.pin ? 'hidden' : ''}><label for="s-pin">קוד חדש (4 עד 8 ספרות)</label><input id="s-pin" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password"><button class="b" id="pin-set">שמירת קוד</button></div></div>
   <div class="card"><h2>הגדרות</h2><label for="s-fam">שם המשפחה</label><input id="s-fam" value="${esc(st.family)}">
   <label for="s-cal">ספירת שנים</label><select id="s-cal"><option value="heb" ${st.calendar === 'heb' ? 'selected' : ''}>עברית (תשפ"ז)</option><option value="greg" ${st.calendar === 'greg' ? 'selected' : ''}>לועזית (2026)</option></select>
-  <label for="s-fill">תזכורת חודשית למלא הוצאות והכנסות משתנות: ביום בחודש (ריק = בלי תזכורת)</label><input id="s-fill" type="number" min="1" max="28" value="${st.fillDay || ''}"><label for="s-dateby">חישוב החודש של תנועה לפי</label><select id="s-dateby"><option value="date" ${st.dateBy !== 'value' ? 'selected' : ''}>תאריך העסקה</option><option value="value" ${st.dateBy === 'value' ? 'selected' : ''}>תאריך הערך או החיוב (כשיש)</option></select><label for="s-tithe">אחוז מעשר</label><input id="s-tithe" type="number" value="${st.tithe}"><label><input id="s-call" type="checkbox" ${st.alertCall ? 'checked' : ''}> בהתראות תקציב לחייג גם בטלפון (לקו ולמספר שהוגדרו בפרופיל)</label><div class="row" style="margin-top:10px"><button class="b" id="s-save">שמירה</button></div></div>
+  <label for="s-fill">תזכורת חודשית למלא הוצאות והכנסות משתנות: ביום בחודש (ריק = בלי תזכורת)</label><input id="s-fill" type="number" min="1" max="28" value="${st.fillDay || ''}"><label for="s-dateby">חישוב החודש של תנועה לפי</label><select id="s-dateby"><option value="date" ${st.dateBy !== 'value' ? 'selected' : ''}>תאריך העסקה</option><option value="value" ${st.dateBy === 'value' ? 'selected' : ''}>תאריך הערך או החיוב (כשיש)</option></select><label for="s-acct">חשבון ברירת מחדל להזנת תנועה</label><select id="s-acct"><option value="">ללא (לבחור בכל הזנה)</option><option value="cash" ${st.defaultAcct === 'cash' ? 'selected' : ''}>מזומן</option>${live('accounts').map(a => `<option value="${esc(a.id)}" ${st.defaultAcct === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select><label for="s-tithe">אחוז מעשר</label><input id="s-tithe" type="number" value="${st.tithe}"><label><input id="s-call" type="checkbox" ${st.alertCall ? 'checked' : ''}> בהתראות תקציב לחייג גם בטלפון (לקו ולמספר שהוגדרו בפרופיל)</label><div class="row" style="margin-top:10px"><button class="b" id="s-save">שמירה</button></div></div>
   ${ME.role === 'admin' ? '<div class="card" id="sumit-card"><h2>חיבור לסמיט (הפקת חשבוניות)</h2><div class="mut">טוען…</div></div>' : ''}
   ${window.BUDGET_PEOPLE ? `<div class="card"><h2>חיבורים</h2><div id="conn" class="mut">בודק…</div><p style="margin-top:10px"><a class="btn sec" href="/plans/limits/">📏 הגבלות לפי משתמש</a></p></div>` : ''}
   ${ME.role === 'admin' ? `<div class="card" id="mz-card"><h2>חיבור לתוכנת מזרק</h2><p class="mut">מזרק מושכת את התנועות מהבנקים וחברות האשראי ושולחת אותן לכאן אוטומטית. הדרך הקלה: לוחצים כאן על "יצירת קוד חיבור", מעתיקים את הקוד, ומדביקים אותו בתוכנה (יעד "התקציב שלי"). הקוד כולל גם את כתובת האתר וגם את המפתח.</p><label>שם החיבור</label><input id="mz-name" placeholder="למשל: המחשב בבית"><p><button class="b" id="mz-gen">יצירת קוד חיבור למזרק</button></p><div id="mz-code" class="mut"></div><p class="mut">או, אם יצרתם מפתח בתוך מזרק, מדביקים אותו כאן:</p><label>מפתח החיבור</label><input id="mz-key" dir="ltr" placeholder="mz_..." autocomplete="off"><p><button class="b" id="mz-add">חיבור</button></p><div id="mz-list" class="mut">טוען...</div></div>` : ''}
@@ -653,7 +653,7 @@ function quickAdd(pre = {}) {
   <input id="q-amt" type="number" inputmode="decimal" step="any" placeholder="סכום" style="font-size:28px;text-align:center" autofocus>
   <label>סעיף</label><input id="q-cat" list="q-list" placeholder="בחר או כתוב" value="${esc(pre.cat || '')}"><datalist id="q-list">${names.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
   <label>הערה</label><input id="q-note"><label>תאריך</label><input id="q-date" type="date" value="${pre.date || today()}">
-  ${acc.length ? `<label>חשבון בנק</label><select id="q-acc"><option value="">—</option>${acc.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>` : ''}
+  <label>חשבון</label><select id="q-acc"><option value="">—</option><option value="cash" ${pre.acct === undefined && S.settings.defaultAcct === 'cash' ? 'selected' : ''}>מזומן</option>${acc.map(a => `<option value="${a.id}" ${pre.acct === undefined && S.settings.defaultAcct === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
   <div class="row" style="margin-top:14px"><button class="b" id="ok">שמירה</button><button class="b sec" id="no">ביטול</button></div>`);
   let type = pre.type || 'expense'; m.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { type = b.dataset.t; m.querySelectorAll('[data-t]').forEach(x => x.classList.toggle('on', x === b)); });
   m.querySelector('#no').onclick = () => m.remove();
@@ -661,7 +661,7 @@ function quickAdd(pre = {}) {
     const amt = +m.querySelector('#q-amt').value; if (!amt) return toast('חסר סכום');
     const t = { id: uid(), type, amount: amt, cat: m.querySelector('#q-cat').value.trim(), note: m.querySelector('#q-note').value.trim(), date: m.querySelector('#q-date').value || today(), acct: m.querySelector('#q-acc')?.value || '' };
     put('tx', t);
-    if (t.acct) { const a = live('accounts').find(x => x.id === t.acct); if (a) put('accounts', { ...a, balance: (+a.balance || 0) + (type === 'income' ? amt : -amt) }); }
+    if (t.acct && t.acct !== 'cash') { const a = live('accounts').find(x => x.id === t.acct); if (a) put('accounts', { ...a, balance: (+a.balance || 0) + (type === 'income' ? amt : -amt) }); }
     m.remove(); toast('נשמר'); render();
   };
   setTimeout(() => m.querySelector('#q-amt').focus(), 100);
@@ -719,6 +719,8 @@ const BANK_NAMES = { hapoalim: 'הפועלים', hapoalimBeOnline: 'הפועלי
 // שם הבנק או הכרטיס של תנועה שנקלטה מ"מזרק" (מתוך המזהה שלה), עם 4 ספרות אחרונות של החשבון
 const bankOf = t => {
   if (t.bank) return t.bank;
+  if (t.acct === 'cash') return 'מזומן';
+  if (t.acct) { const a = S.data.accounts.find(x => x.id === t.acct && !x.del); if (a) return a.name; }
   if (t.co) return (BANK_NAMES[t.co] || t.co) + (t.ac ? ' ·' + t.ac : '');
   const p = String(t.id || '').startsWith('bk-') ? t.id.slice(3).split('_') : [];
   if (p.length < 3) return '';
@@ -1935,7 +1937,7 @@ function bind() {
       ${ok(j.backup.cron_secret, 'גיבוי יומי אפשרי (נדרשת משימה ב-cron-job.org לכתובת /internal/backup/)', 'חסר CRON_SECRET ב-Render, בלעדיו אין גיבוי יומי')}
       <li>📦 ${j.docs} רשומות בתקציב · 👥 ${j.people} הרשאות אישיות</li></ul>`;
   }).catch(() => { $('#conn').textContent = 'לא ניתן לטעון את מצב החיבורים'; });
-  $('#s-save')?.addEventListener('click', () => { const s = S.settings; s.family = $('#s-fam').value; s.calendar = $('#s-cal').value; s.tithe = +$('#s-tithe').value || 10; s.alertCall = $('#s-call').checked; s.dateBy = $('#s-dateby').value; s.fillDay = Math.min(28, Math.max(0, +$('#s-fill').value || 0));
+  $('#s-save')?.addEventListener('click', () => { const s = S.settings; s.family = $('#s-fam').value; s.calendar = $('#s-cal').value; s.tithe = +$('#s-tithe').value || 10; s.alertCall = $('#s-call').checked; s.dateBy = $('#s-dateby').value; s.defaultAcct = $('#s-acct').value; s.fillDay = Math.min(28, Math.max(0, +$('#s-fill').value || 0));
     curYear = null; save(); render(); toast('נשמר'); });
   const privSet = (k, v) => { S.settings[k] = v; amtHidden = !!(S.settings.privAlways || S.settings.privDefault); save(); applyPriv(); };
   $('#s-priv-a')?.addEventListener('change', e => privSet('privAlways', e.target.checked));
