@@ -99,6 +99,7 @@ export async function readPagiTransferDetails(
 ): Promise<TransferDetail[]> {
   let page: Page | undefined;
   const found: TransferDetail[] = [];
+  let cancelled = false;
   const startedAt = Date.now();
   const lines: string[] = [];
   // כל שורה נשמרת מיד לקובץ, כדי שגם אם השלב נתקע נדע איפה
@@ -117,6 +118,10 @@ export async function readPagiTransferDetails(
     page = await browser.newPage();
     log.push('נפתח לשונית');
     page.setDefaultTimeout(timeout);
+    // אותה זהות כמו הלשונית של הסריקה הרגילה: בלי "Headless" ובלי סימן אוטומציה, אחרת האתר לא מציג את הטבלה
+    await page.setUserAgent((await browser.userAgent()).replace('HeadlessChrome', 'Chrome'));
+    await page.setViewport({ width: 1366, height: 900 });
+    await page.evaluateOnNewDocument(() => Object.defineProperty(navigator, 'webdriver', { get: () => undefined }));
     page.on('dialog', (dialog) => {
       log.push(`חלון של הדפדפן: ${dialog.message().slice(0, 80)}`);
       void dialog.dismiss().catch(() => undefined);
@@ -127,15 +132,20 @@ export async function readPagiTransferDetails(
     // ממתינים עד שטבלת התנועות באמת נטענה (עד דקה), ולא זמן קבוע
     let count = 0;
     let tableSeen = false;
-    for (let waited = 0; waited < 60_000 && !tableSeen; waited += 3000) {
+    for (let waited = 0; waited < 45_000 && !tableSeen && !cancelled; waited += 3000) {
       await sleep(3000);
       tableSeen = [...(await visibleLines(page))].some((line) => line.includes('אסמכתא'));
+      if (!tableSeen && waited === 24_000) {
+        log.push('הטבלה לא נטענה: מרעננים');
+        await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => undefined);
+      }
     }
+    if (cancelled) return;
     log.push(tableSeen ? 'טבלת התנועות נטענה' : 'טבלת התנועות לא נטענה תוך דקה');
     count = await markTransferLinks(page);
     log.push(`קישורי "העברה מהחשבון" שנמצאו: ${count}`);
     let stop = false;
-    for (let i = 0; i < count && !stop; i++) {
+    for (let i = 0; i < count && !stop && !cancelled; i++) {
       onStep?.(i + 1, count);
       for (const frame of page.frames()) {
         const link = await frame.$(`a[data-pagi-transfer="${i}"]`);
@@ -189,10 +199,12 @@ export async function readPagiTransferDetails(
     }
   };
   try {
-    await Promise.race([work(), sleep(60_000)]);
+    await Promise.race([work(), sleep(90_000)]);
+    cancelled = true;
   } catch (e) {
     log.push(`שגיאה: ${(e as Error).message}`);
   } finally {
+    cancelled = true;
     await Promise.race([page?.close().catch(() => undefined), sleep(5000)]);
     try {
       log.push(`סיום, נקראו ${found.length} העברות`);
