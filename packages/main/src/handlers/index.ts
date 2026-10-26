@@ -54,7 +54,7 @@ const functions: Record<string, Listener> = {
   getLocalMortgages: loadMortgages,
   getResumeInfo: loadResumeInfo,
   getMortgageSchedule: () => getMortgageSchedule(),
-  setMortgageMode: (_: unknown, mode: MortgageMode) => setMortgageMode(mode),
+  setMortgageMode: (_: unknown, mode: MortgageMode, everyDays?: number) => setMortgageMode(mode, everyDays),
   isBrowserInstalled: isBrowserInstalledHandler,
   stopPeriodicScraping,
   getAppInfo: async () => {

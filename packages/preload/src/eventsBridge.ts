@@ -51,12 +51,12 @@ export async function getResumeInfo(): Promise<{ count: number; savedAt: number 
   return electron.ipcRenderer.invoke('getResumeInfo');
 }
 
-export async function getMortgageSchedule(): Promise<{ mode: 'manual' | 'monthly' | 'always'; lastOkAt?: number; lastTryAt?: number }> {
+export async function getMortgageSchedule(): Promise<{ mode: 'manual' | 'periodic' | 'always'; everyDays: number; lastOkAt?: number; lastTryAt?: number }> {
   return electron.ipcRenderer.invoke('getMortgageSchedule');
 }
 
-export async function setMortgageMode(mode: 'manual' | 'monthly' | 'always') {
-  return electron.ipcRenderer.invoke('setMortgageMode', mode);
+export async function setMortgageMode(mode: 'manual' | 'periodic' | 'always', everyDays?: number) {
+  return electron.ipcRenderer.invoke('setMortgageMode', mode, everyDays);
 }
 
 export async function scrape(handleScrapingEvent: HandleScrapingEvent, mode?: 'all', onlyAccountId?: string, forceMortgage?: boolean) {

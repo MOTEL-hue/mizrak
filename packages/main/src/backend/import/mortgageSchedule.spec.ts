@@ -31,6 +31,14 @@ describe('shouldReadMortgage', () => {
     expect(shouldReadMortgage(Date.now() + 2 * DAY)).toBe(true);
   });
 
+  it('תדירות שבועית: קוראים אחרי שבוע', () => {
+    setMortgageMode('periodic', 7);
+    markMortgageTry();
+    markMortgageOk();
+    expect(shouldReadMortgage(Date.now() + 6 * DAY)).toBe(false);
+    expect(shouldReadMortgage(Date.now() + 8 * DAY)).toBe(true);
+  });
+
   it('ידני בלבד: לא קוראים, אלא בבקשה מהכפתור', () => {
     setMortgageMode('manual');
     expect(shouldReadMortgage()).toBe(false);

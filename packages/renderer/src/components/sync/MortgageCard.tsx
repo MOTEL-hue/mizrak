@@ -7,8 +7,12 @@ import styles from './SyncPage.module.css';
 
 type Schedule = Awaited<ReturnType<typeof getMortgageSchedule>>;
 
-const MODES: [Schedule['mode'], string][] = [
-  ['monthly', 'פעם בחודש (מומלץ)'],
+// הערך: manual, always, או מספר ימים
+const CHOICES: [string, string][] = [
+  ['7', 'כל שבוע'],
+  ['14', 'כל שבועיים'],
+  ['30', 'פעם בחודש (מומלץ)'],
+  ['60', 'כל חודשיים'],
   ['manual', 'רק כשאני לוחץ על הכפתור'],
   ['always', 'בכל סנכרון (איטי)'],
 ];
@@ -40,14 +44,19 @@ function MortgageCard() {
         <Form.Label htmlFor="mortgage-mode">מתי לקרוא את פירוט המשכנתא</Form.Label>
         <Form.Select
           id="mortgage-mode"
-          value={schedule.mode}
+          value={schedule.mode === 'periodic' ? String(schedule.everyDays) : schedule.mode}
           onChange={(e) => {
-            const mode = e.target.value as Schedule['mode'];
-            setSchedule({ ...schedule, mode });
-            void setMortgageMode(mode);
+            const value = e.target.value;
+            const days = Number(value);
+            const mode: Schedule['mode'] = value === 'manual' || value === 'always' ? value : 'periodic';
+            setSchedule({ ...schedule, mode, everyDays: days > 0 ? days : schedule.everyDays });
+            void setMortgageMode(mode, days > 0 ? days : undefined);
           }}
         >
-          {MODES.map(([value, label]) => (
+          {(CHOICES.some(([v]) => v === String(schedule.everyDays)) || schedule.mode !== 'periodic'
+            ? CHOICES
+            : [...CHOICES, [String(schedule.everyDays), `כל ${schedule.everyDays} ימים`] as [string, string]]
+          ).map(([value, label]) => (
             <option key={value} value={value}>
               {label}
             </option>
