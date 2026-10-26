@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { type Browser, type Page } from 'puppeteer-core';
+import { type Browser, type Frame, type Page } from 'puppeteer-core';
 import { userDataPath } from '@/app-globals';
 import { logAppEvent } from '/@/logging/operationLogger';
 import { localDate } from '../budgetDocs/docImport';
@@ -32,7 +32,11 @@ const isoFromIsraeli = (text: string) => {
 async function visibleLines(page: Page) {
   const lines = new Set<string>();
   for (const frame of page.frames().filter((f) => !/netfree/i.test(f.url()))) {
-    const text = await frame.evaluate(() => document.body?.innerText ?? '').catch(() => '');
+    const text = await limited(
+      frame.evaluate(() => document.body?.innerText ?? ''),
+      4000,
+      'קריאת טקסט',
+    ).catch(() => '');
     text
       .split('\n')
       .map((l) => l.trim())
@@ -42,20 +46,24 @@ async function visibleLines(page: Page) {
   return lines;
 }
 
+// מסמן את קישורי ההעברה בדף, ומחזיר לכל אחד את המסגרת שלו (כדי לא לעבור על מסגרות אחרות, שחלקן, כמו של נטפרי, לא עונות)
 async function markTransferLinks(page: Page) {
-  let total = 0;
+  const targets: { frame: Frame; index: number }[] = [];
   for (const frame of page.frames().filter((f) => !/netfree/i.test(f.url()))) {
-    total += await frame
-      .evaluate((max) => {
+    const n = await limited(
+      frame.evaluate((max) => {
         const links = Array.from(document.querySelectorAll('a')).filter((a) =>
           /^העברה מהחשבון/.test((a.textContent ?? '').trim()),
         );
         links.slice(0, max).forEach((a, i) => a.setAttribute('data-pagi-transfer', String(i)));
         return Math.min(links.length, max);
-      }, MAX_TRANSFERS)
-      .catch(() => 0);
+      }, MAX_TRANSFERS),
+      5000,
+      'סימון קישורים',
+    ).catch(() => 0);
+    for (let index = 0; index < n; index++) targets.push({ frame, index });
   }
-  return total;
+  return targets;
 }
 
 async function readDialog(page: Page): Promise<TransferDetail[]> {
@@ -142,60 +150,64 @@ export async function readPagiTransferDetails(
     }
     if (cancelled) return;
     log.push(tableSeen ? 'טבלת התנועות נטענה' : 'טבלת התנועות לא נטענה תוך דקה');
-    count = await markTransferLinks(page);
+    const targets = await markTransferLinks(page);
+    count = targets.length;
     log.push(`קישורי "העברה מהחשבון" שנמצאו: ${count}`);
     let stop = false;
-    for (let i = 0; i < count && !stop && !cancelled; i++) {
+    for (const [i, target] of targets.entries()) {
+      if (stop || cancelled) break;
       onStep?.(i + 1, count);
-      for (const frame of page.frames()) {
-        const link = await frame.$(`a[data-pagi-transfer="${i}"]`);
-        if (!link) continue;
-        if (i === 0) log.push(`קישור ראשון: ${mask(await link.evaluate((el) => el.outerHTML)).slice(0, 400)}`);
-        let details: TransferDetail[] = [];
-        let how = '';
-        // כמה דרכים ללחוץ: לחיצה אמיתית, לחיצה מהדף, ואירועי עכבר מלאים (חלק מהאתרים מגיבים רק לאחד מהם)
-        const clicks: [string, () => Promise<unknown>][] = [
-          ['לחיצה', () => link.click()],
-          ['לחיצה בדף', () => link.evaluate((el) => (el as HTMLElement).click())],
-          [
-            'אירועי עכבר',
-            () =>
-              link.evaluate((el) =>
-                ['mousedown', 'mouseup', 'click'].forEach((type) =>
-                  el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window })),
-                ),
+      const link = await limited(target.frame.$(`a[data-pagi-transfer="${target.index}"]`), 5000, 'חיפוש קישור').catch(
+        (e) => {
+          log.push(`העברה ${i + 1}: ${(e as Error).message}`);
+          return null;
+        },
+      );
+      if (!link) continue;
+      if (i === 0) log.push(`קישור ראשון: ${mask(await link.evaluate((el) => el.outerHTML)).slice(0, 400)}`);
+      let details: TransferDetail[] = [];
+      let how = '';
+      // כמה דרכים ללחוץ: לחיצה אמיתית, לחיצה מהדף, ואירועי עכבר מלאים (חלק מהאתרים מגיבים רק לאחד מהם)
+      const clicks: [string, () => Promise<unknown>][] = [
+        ['לחיצה', () => link.click()],
+        ['לחיצה בדף', () => link.evaluate((el) => (el as HTMLElement).click())],
+        [
+          'אירועי עכבר',
+          () =>
+            link.evaluate((el) =>
+              ['mousedown', 'mouseup', 'click'].forEach((type) =>
+                el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window })),
               ),
-          ],
-        ];
-        for (const [name, doClick] of clicks) {
-          log.push(`העברה ${i + 1}: ${name}`);
-          await limited(doClick(), 8000, name).catch((e) => log.push(`העברה ${i + 1}: ${(e as Error).message}`));
-          for (let attempt = 0; attempt < 5 && !details.length; attempt++) {
-            await sleep(1000);
-            details = await limited(readDialog(page), 15_000, 'בדיקת חלון').catch(() => []);
-          }
-          log.push(`העברה ${i + 1}: אחרי ${name}, נקראו ${details.length}`);
-          if (details.length) {
-            how = name;
-            break;
-          }
+            ),
+        ],
+      ];
+      for (const [name, doClick] of clicks) {
+        log.push(`העברה ${i + 1}: ${name}`);
+        await limited(doClick(), 8000, name).catch((e) => log.push(`העברה ${i + 1}: ${(e as Error).message}`));
+        for (let attempt = 0; attempt < 5 && !details.length; attempt++) {
+          await sleep(1000);
+          details = await limited(readDialog(page), 15_000, 'בדיקת חלון').catch(() => []);
         }
-        if (!details.length) {
-          const lines = [...(await visibleLines(page))].filter((l) => /פירוט|העברות|מהות/.test(l));
-          log.push(`העברה ${i + 1}: לא נקראה. שורות רלוונטיות במסך: ${mask(lines.join(' | ')).slice(0, 300) || 'אין'}`);
-        } else {
-          log.push(`העברה ${i + 1}: נקראה (${how})`);
+        log.push(`העברה ${i + 1}: אחרי ${name}, נקראו ${details.length}`);
+        if (details.length) {
+          how = name;
+          break;
         }
-        found.push(...details);
-        // אם הקישור הראשון לא נפתח בשום דרך, אין טעם להמשיך ולבזבז זמן על השאר
-        if (!details.length && i === 0) {
-          log.push('הקישור הראשון לא נפתח: מפסיקים');
-          stop = true;
-        }
-        await clickByText(page, '^סגור$');
-        await sleep(700);
-        break;
       }
+      if (!details.length) {
+        const lines = [...(await visibleLines(page))].filter((l) => /פירוט|העברות|מהות/.test(l));
+        log.push(`העברה ${i + 1}: לא נקראה. שורות רלוונטיות במסך: ${mask(lines.join(' | ')).slice(0, 300) || 'אין'}`);
+      } else {
+        log.push(`העברה ${i + 1}: נקראה (${how})`);
+      }
+      found.push(...details);
+      // אם הקישור הראשון לא נפתח בשום דרך, אין טעם להמשיך ולבזבז זמן על השאר
+      if (!details.length && i === 0) {
+        log.push('הקישור הראשון לא נפתח: מפסיקים');
+        stop = true;
+      }
+      await limited(clickByText(page, '^סגור$'), 8000, 'סגירת חלון').catch(() => undefined);
+      await sleep(700);
     }
   };
   try {
