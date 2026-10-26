@@ -5,6 +5,7 @@ import { logAppEvent } from '/@/logging/operationLogger';
 import puppeteer from 'puppeteer-core';
 import { patchVisaCalLogin } from './calLoginPatch';
 import { grabMortgagesFromLoggedInBrowser } from './pagiMortgages';
+import { shouldReadMortgage } from './mortgageSchedule';
 import { attachRecipients, readPagiTransferDetails } from './pagiTransferProbe';
 import { userDataPath } from '@/app-globals';
 import path from 'path';
@@ -169,7 +170,7 @@ export async function scrape(
       );
       attachRecipients(scrapeResult.accounts as Parameters<typeof attachRecipients>[0], details);
     }
-    if (scrapeResult.success && companyId === 'pagi') {
+    if (scrapeResult.success && companyId === 'pagi' && shouldReadMortgage()) {
       emitProgressEvent(companyId, 'READING_MORTGAGE');
       await grabMortgagesFromLoggedInBrowser(ownBrowser, Math.max(timeout, 150_000));
     }

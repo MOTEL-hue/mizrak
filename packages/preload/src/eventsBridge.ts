@@ -51,9 +51,17 @@ export async function getResumeInfo(): Promise<{ count: number; savedAt: number 
   return electron.ipcRenderer.invoke('getResumeInfo');
 }
 
-export async function scrape(handleScrapingEvent: HandleScrapingEvent, mode?: 'all', onlyAccountId?: string) {
+export async function getMortgageSchedule(): Promise<{ mode: 'manual' | 'monthly' | 'always'; lastOkAt?: number; lastTryAt?: number }> {
+  return electron.ipcRenderer.invoke('getMortgageSchedule');
+}
+
+export async function setMortgageMode(mode: 'manual' | 'monthly' | 'always') {
+  return electron.ipcRenderer.invoke('setMortgageMode', mode);
+}
+
+export async function scrape(handleScrapingEvent: HandleScrapingEvent, mode?: 'all', onlyAccountId?: string, forceMortgage?: boolean) {
   console.log('Sending scrape event to main');
-  await electron.ipcRenderer.send('scrape', mode, onlyAccountId);
+  await electron.ipcRenderer.send('scrape', mode, onlyAccountId, forceMortgage);
   if (!progressListenerDefined) {
     electron.ipcRenderer.on('scrapingProgress', (_, progressEventStr) => {
       const progressEvent = JSON.parse(progressEventStr);

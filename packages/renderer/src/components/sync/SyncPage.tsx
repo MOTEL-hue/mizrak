@@ -3,6 +3,7 @@ import { Form } from 'react-bootstrap';
 import { useConfigStore } from '../../store/ConfigStore';
 import Body from '../Body';
 import styles from './SyncPage.module.css';
+import MortgageCard from './MortgageCard';
 import SyncTools from './SyncTools';
 
 const INTERVALS: [number, string][] = [
@@ -46,6 +47,7 @@ function SyncPage() {
       <div className={styles.card}>
         <Body />
       </div>
+      <MortgageCard />
       <SyncTools />
     </div>
   );

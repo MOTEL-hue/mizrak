@@ -13,6 +13,7 @@ import { summarizeFailures } from './bridgeFormat';
 import { ProgressTracker } from './syncProgress';
 import { syncDocs } from './budgetDocs/docSyncClient';
 import { BOI_RATES_URLS } from './budgetDocs/rates';
+import { markMortgageOk, markMortgageTry, shouldReadMortgage } from './import/mortgageSchedule';
 import { logAppEvent } from '/@/logging/operationLogger';
 
 // הגשר לדף התקציב: התוכנה רצה ברקע, שואלת את האתר אם ביקשו סנכרון (או שהגיע הזמן לסנכרון אוטומטי),
@@ -193,6 +194,9 @@ export function startBudgetBridge() {
 export async function pullMortgagesInApp(config: Awaited<ReturnType<typeof getConfig>>): Promise<string | null> {
   const account = config.scraping.accountsToScrape.find((a) => (a.key === 'pagi' || a.key === 'beinleumi') && a.active !== false);
   if (!account) return null;
+  // המשכנתא לא נקראת בכל סנכרון (ראו mortgageSchedule)
+  if (!shouldReadMortgage()) return null;
+  markMortgageTry();
   try {
     const chromePath = config.scraping.chromiumPath || (await getChrome(userDataPath, () => undefined));
     const tracks =
@@ -205,6 +209,7 @@ export async function pullMortgagesInApp(config: Awaited<ReturnType<typeof getCo
       profileKey: account.key,
     }));
     await saveMortgages(tracks);
+    markMortgageOk();
     logAppEvent('MORTGAGE_PULLED_IN_APP', { tracks: tracks.length });
     const budget = config.outputVendors.budget;
     if (budget?.active && budget.options.token && budget.options.siteUrl) {

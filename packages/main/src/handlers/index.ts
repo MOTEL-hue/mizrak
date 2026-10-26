@@ -2,6 +2,7 @@ import { applyBatch, getAll } from '@/backend/budgetDocs/docApi';
 import { getRates } from '@/backend/budgetDocs/rates';
 import { type BatchOp } from '@/backend/budgetDocs/docView';
 import { pullMortgagesInApp, reportAppProgress, reportAppRun } from '@/backend/budgetBridge';
+import { getMortgageSchedule, setMortgageForced, setMortgageMode, type MortgageMode } from '@/backend/import/mortgageSchedule';
 import { loadMortgages } from '@/backend/import/mortgageStore';
 import { clearResume, loadResumeInfo } from '@/backend/import/resumeStore';
 import { App } from '@/app-globals';
@@ -52,6 +53,8 @@ const functions: Record<string, Listener> = {
   getLocalTransactions: async () => loadWithSeed(await getConfig()),
   getLocalMortgages: loadMortgages,
   getResumeInfo: loadResumeInfo,
+  getMortgageSchedule: () => getMortgageSchedule(),
+  setMortgageMode: (_: unknown, mode: MortgageMode) => setMortgageMode(mode),
   isBrowserInstalled: isBrowserInstalledHandler,
   stopPeriodicScraping,
   getAppInfo: async () => {
@@ -87,7 +90,8 @@ export const registerHandlers = () => {
   });
 
   ipcMain.removeAllListeners('scrape');
-  ipcMain.on('scrape', async (event: IpcMainEvent, mode?: string, onlyAccountId?: string) => {
+  ipcMain.on('scrape', async (event: IpcMainEvent, mode?: string, onlyAccountId?: string, forceMortgage?: boolean) => {
+    setMortgageForced(!!forceMortgage);
     if (mode === 'all' || onlyAccountId) await clearResume();
     const fullConfig = await getConfig();
     // סנכרון חשבון אחד: שאר החשבונות לא נסרקים בהרצה הזו (ההגדרה השמורה לא משתנה)
@@ -123,6 +127,8 @@ export const registerHandlers = () => {
       if (mortgageError) problems.push({ name: 'משכנתא (פאג"י)', message: mortgageError });
     } catch (e) {
       problems.push({ name: 'הסריקה', message: toHebrewError((e as Error).message) });
+    } finally {
+      setMortgageForced(false);
     }
     await reportAppRun(config, {
       problems: problems.length,
