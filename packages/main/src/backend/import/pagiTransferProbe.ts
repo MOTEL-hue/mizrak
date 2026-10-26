@@ -82,11 +82,26 @@ export async function readPagiTransferDetails(
 ): Promise<TransferDetail[]> {
   let page: Page | undefined;
   const found: TransferDetail[] = [];
-  const log: string[] = [];
+  const startedAt = Date.now();
+  const lines: string[] = [];
+  // כל שורה נשמרת מיד לקובץ, כדי שגם אם השלב נתקע נדע איפה
+  const log = {
+    push(message: string) {
+      lines.push(`${Math.round((Date.now() - startedAt) / 1000)}s ${message}`);
+      try {
+        fs.writeFileSync(path.join(userDataPath, TRANSFER_DIAGNOSTIC_FILE), lines.join('\n'));
+      } catch {
+        // אבחון בלבד
+      }
+    },
+  };
+  log.push('מתחיל');
   const work = async () => {
     page = await browser.newPage();
+    log.push('נפתח לשונית');
     page.setDefaultTimeout(timeout);
     await page.goto(TRANSACTIONS_URL, { waitUntil: 'domcontentloaded' });
+    log.push('הדף נטען');
     // ממתינים עד שטבלת התנועות באמת נטענה (עד דקה), ולא זמן קבוע
     let count = 0;
     let tableSeen = false;
@@ -136,14 +151,14 @@ export async function readPagiTransferDetails(
     }
   };
   try {
-    await Promise.race([work(), sleep(150_000)]);
+    await Promise.race([work(), sleep(120_000)]);
   } catch (e) {
     log.push(`שגיאה: ${(e as Error).message}`);
   } finally {
-    await page?.close().catch(() => undefined);
+    await Promise.race([page?.close().catch(() => undefined), sleep(5000)]);
     try {
-      const sample = found[0] ? `\nדוגמה: ${found[0].date} ${found[0].amount} ${found[0].name.replace(/\S+/g, (w) => `${w[0]}.`)}` : '';
-      fs.writeFileSync(path.join(userDataPath, TRANSFER_DIAGNOSTIC_FILE), log.join('\n') + sample);
+      log.push(`סיום, נקראו ${found.length} העברות`);
+      if (found[0]) log.push(`דוגמה: ${found[0].date} ${found[0].amount} ${found[0].name.replace(/\S+/g, (w) => `${w[0]}.`)}`);
       logAppEvent('PAGI_TRANSFER_DETAILS_DONE', { transfers: found.length });
     } catch {
       // אבחון בלבד
