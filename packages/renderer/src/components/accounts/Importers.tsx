@@ -1,6 +1,7 @@
 import logsIcon from '../../assets/card-text.svg';
 import settingsIcon from '../../assets/gear.svg';
 import resultsIcon from '../../assets/results.svg';
+import syncMortgageIcon from '../../assets/sync-mortgage.svg';
 import syncOneIcon from '../../assets/sync-one.svg';
 import {
   AccountStatus,
@@ -17,7 +18,7 @@ interface ImportersProps {
   accounts: AccountType[];
   isScraping: boolean;
   showModal: (AccountType: AccountType, ModalStatus: ModalStatus) => void;
-  onScrapeOne?: (accountId: string) => void;
+  onScrapeOne?: (accountId: string, mortgage?: 'with' | 'without') => void;
   handleNewAccountClicked?: () => void;
 }
 
@@ -39,7 +40,9 @@ function Importers({ accounts, isScraping, showModal, onScrapeOne, handleNewAcco
               () => {
                 configStore.openResults(account.companyId as OutputVendorName);
               },
-              onScrapeOne ? () => onScrapeOne(account.id) : undefined,
+              onScrapeOne
+                ? (mortgage) => onScrapeOne(account.id, hasMortgage(account) ? mortgage : undefined)
+                : undefined,
             )}
           />
         );
@@ -49,12 +52,15 @@ function Importers({ accounts, isScraping, showModal, onScrapeOne, handleNewAcco
   );
 }
 
+// בפאג"י ובבינלאומי אפשר לבחור אם לקרוא גם את המשכנתא
+const hasMortgage = (account: AccountType) => account.companyId === 'pagi' || account.companyId === 'beinleumi';
+
 export function getActionButtons(
   showModal: (AccountType: AccountType, ModalStatus: ModalStatus) => void,
   account: AccountType,
   isScraping: boolean,
   openResultsHandler?: () => void,
-  scrapeOneHandler?: () => void,
+  scrapeOneHandler?: (mortgage?: 'with' | 'without') => void,
 ): ActionButton[] {
   const logsActionButton = {
     icon: logsIcon,
@@ -87,7 +93,24 @@ export function getActionButtons(
   }
 
   if (!isScraping && scrapeOneHandler && account.type === TypeOfAccount.IMPORTER) {
-    actionButtons.push({ icon: syncOneIcon, clickHandler: scrapeOneHandler, tooltipText: 'סנכרון רק החשבון הזה' });
+    if (hasMortgage(account)) {
+      actionButtons.push({
+        icon: syncOneIcon,
+        clickHandler: () => scrapeOneHandler('without'),
+        tooltipText: 'סנכרון רק החשבון הזה, בלי משכנתא',
+      });
+      actionButtons.push({
+        icon: syncMortgageIcon,
+        clickHandler: () => scrapeOneHandler('with'),
+        tooltipText: 'סנכרון רק החשבון הזה, כולל משכנתא',
+      });
+    } else {
+      actionButtons.push({
+        icon: syncOneIcon,
+        clickHandler: () => scrapeOneHandler(),
+        tooltipText: 'סנכרון רק החשבון הזה',
+      });
+    }
   }
 
   if (!isScraping) {

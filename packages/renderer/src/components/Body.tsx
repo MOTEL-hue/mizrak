@@ -30,11 +30,11 @@ const Body = () => {
   const configStore = useConfigStore();
   const [askScrapeMode, setAskScrapeMode] = useState(false);
   const runScrape = useCallback(
-    (mode?: 'all', onlyAccountId?: string) => {
+    (mode?: 'all', onlyAccountId?: string, mortgage?: 'with' | 'without') => {
       setAskScrapeMode(false);
       configStore.clearScrapingStatus();
       configStore.beginScrape();
-      return scrape(configStore.handleScrapingEvent.bind(configStore), mode, onlyAccountId);
+      return scrape(configStore.handleScrapingEvent.bind(configStore), mode, onlyAccountId, mortgage);
     },
     [configStore],
   );
@@ -102,7 +102,7 @@ const Body = () => {
                   accounts={configStore.importers}
                   isScraping={configStore.isScraping}
                   showModal={showModal}
-                  onScrapeOne={(accountId) => void runScrape('all', accountId)}
+                  onScrapeOne={(accountId, mortgage) => void runScrape('all', accountId, mortgage)}
                   handleNewAccountClicked={newScraperClicked}
                 />
               </AccountsContainer>
@@ -165,13 +165,16 @@ const Body = () => {
         />
         <CheckForUpdates />
       </Container>
-    
+
       <Modal show={askScrapeMode} onHide={() => setAskScrapeMode(false)} centered>
         <Modal.Header closeButton>
           <Modal.Title>איך לסרוק?</Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          <p>בשעה האחרונה כבר הסתיימו חלק מהחשבונות. כדי לא להעמיס על אתרי הבנקים (וכך לא להיחסם), אפשר לסרוק רק את מה שלא הצליח או לא הסתיים.</p>
+          <p>
+            בשעה האחרונה כבר הסתיימו חלק מהחשבונות. כדי לא להעמיס על אתרי הבנקים (וכך לא להיחסם), אפשר לסרוק רק את מה
+            שלא הצליח או לא הסתיים.
+          </p>
           <Stack direction="horizontal" gap={2} className="flex-wrap">
             <Button variant="dark" onClick={() => runScrape()}>
               רק מה שלא הצליח

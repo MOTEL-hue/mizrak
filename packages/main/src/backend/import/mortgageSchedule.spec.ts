@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { dir } = vi.hoisted(() => ({ dir: `${process.env.TMPDIR ?? '/tmp'}/ms-${process.pid}` }));
 vi.mock('@/app-globals', () => ({ userDataPath: dir }));
 
-import { markMortgageOk, markMortgageTry, setMortgageForced, setMortgageMode, shouldReadMortgage } from './mortgageSchedule';
+import { markMortgageOk, markMortgageTry, setMortgageOverride, setMortgageMode, shouldReadMortgage } from './mortgageSchedule';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -13,7 +13,7 @@ describe('shouldReadMortgage', () => {
   beforeEach(() => {
     fs.rmSync(dir, { recursive: true, force: true });
     fs.mkdirSync(dir, { recursive: true });
-    setMortgageForced(false);
+    setMortgageOverride(undefined);
   });
 
   it('פעם ראשונה: קוראים', () => expect(shouldReadMortgage()).toBe(true));
@@ -42,8 +42,13 @@ describe('shouldReadMortgage', () => {
   it('ידני בלבד: לא קוראים, אלא בבקשה מהכפתור', () => {
     setMortgageMode('manual');
     expect(shouldReadMortgage()).toBe(false);
-    setMortgageForced(true);
+    setMortgageOverride('with');
     expect(shouldReadMortgage()).toBe(true);
+  });
+
+  it('בקשה "בלי משכנתא" מדלגת גם כשהגיע הזמן', () => {
+    setMortgageOverride('without');
+    expect(shouldReadMortgage()).toBe(false);
   });
 
   it('בכל סנכרון: תמיד קוראים', () => {

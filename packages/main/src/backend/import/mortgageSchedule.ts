@@ -43,16 +43,17 @@ export function setMortgageMode(mode: MortgageMode, everyDays?: number) {
 export const markMortgageTry = () => save({ ...getMortgageSchedule(), lastTryAt: Date.now() });
 export const markMortgageOk = () => save({ ...getMortgageSchedule(), lastOkAt: Date.now() });
 
-// בקשה ידנית מהכפתור: קוראים בלי קשר להגדרה
-let forced = false;
-export const setMortgageForced = (value: boolean) => {
-  forced = value;
+// בקשה ידנית מהכפתור: with = קוראים בלי קשר להגדרה, without = לא קוראים בלי קשר להגדרה
+export type MortgageOverride = 'with' | 'without' | undefined;
+let override: MortgageOverride;
+export const setMortgageOverride = (value: MortgageOverride) => {
+  override = value;
 };
-
-export const isMortgageForced = () => forced;
+export const isMortgageForced = () => override === 'with';
 
 export function shouldReadMortgage(now = Date.now()): boolean {
-  if (forced) return true;
+  if (override === 'with') return true;
+  if (override === 'without') return false;
   const { mode, everyDays, lastOkAt, lastTryAt } = getMortgageSchedule();
   if (mode === 'manual') return false;
   if (mode === 'always') return true;

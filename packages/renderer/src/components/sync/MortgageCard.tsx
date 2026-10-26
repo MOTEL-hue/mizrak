@@ -34,7 +34,7 @@ function MortgageCard() {
   const readNow = () => {
     configStore.clearScrapingStatus();
     configStore.beginScrape();
-    void scrape(configStore.handleScrapingEvent.bind(configStore), 'all', account.id, true);
+    void scrape(configStore.handleScrapingEvent.bind(configStore), 'all', account.id, 'with');
   };
 
   return (

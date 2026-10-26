@@ -59,9 +59,9 @@ export async function setMortgageMode(mode: 'manual' | 'periodic' | 'always', ev
   return electron.ipcRenderer.invoke('setMortgageMode', mode, everyDays);
 }
 
-export async function scrape(handleScrapingEvent: HandleScrapingEvent, mode?: 'all', onlyAccountId?: string, forceMortgage?: boolean) {
+export async function scrape(handleScrapingEvent: HandleScrapingEvent, mode?: 'all', onlyAccountId?: string, mortgage?: 'with' | 'without') {
   console.log('Sending scrape event to main');
-  await electron.ipcRenderer.send('scrape', mode, onlyAccountId, forceMortgage);
+  await electron.ipcRenderer.send('scrape', mode, onlyAccountId, mortgage);
   if (!progressListenerDefined) {
     electron.ipcRenderer.on('scrapingProgress', (_, progressEventStr) => {
       const progressEvent = JSON.parse(progressEventStr);
