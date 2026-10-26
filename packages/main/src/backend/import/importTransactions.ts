@@ -165,6 +165,12 @@ export async function scrapeFinancialAccountsAndFetchTransactions(
               notifyProblem('תקציב: נפתח חלון', `האתר של ${accountToScrape.name ?? accountToScrape.key} איטי או חוסם דפדפן שקוף, ולכן נפתח חלון. אפשר להשאיר אותו פתוח עד שהסריקה תסתיים.`);
               return scrapeOnce(true);
             }
+            // פאג"י נטען לפעמים לאט מאוד ונכשל בשני הניסיונות: ניסיון שלישי אחרי דקה נוספת
+            if (accountToScrape.key === 'pagi' && /Waiting for selector|Execution context|Navigation timeout/i.test((e2 as Error).message ?? '')) {
+              log.info('SCRAPE_THIRD_ATTEMPT', { importer: accountToScrape.key });
+              await sleep(RETRY_WAIT_MS);
+              return scrapeOnce();
+            }
             throw e2;
           }
         }
