@@ -87,8 +87,15 @@ export async function readPagiTransferDetails(
     page = await browser.newPage();
     page.setDefaultTimeout(timeout);
     await page.goto(TRANSACTIONS_URL, { waitUntil: 'domcontentloaded' });
-    await sleep(12000);
-    const count = await markTransferLinks(page);
+    // ממתינים עד שטבלת התנועות באמת נטענה (עד דקה), ולא זמן קבוע
+    let count = 0;
+    let tableSeen = false;
+    for (let waited = 0; waited < 60_000 && !tableSeen; waited += 3000) {
+      await sleep(3000);
+      tableSeen = (await visibleLines(page)).has('אסמכתא');
+    }
+    log.push(tableSeen ? 'טבלת התנועות נטענה' : 'טבלת התנועות לא נטענה תוך דקה');
+    count = await markTransferLinks(page);
     log.push(`קישורי "העברה מהחשבון" שנמצאו: ${count}`);
     for (let i = 0; i < count; i++) {
       onStep?.(i + 1, count);
@@ -129,7 +136,7 @@ export async function readPagiTransferDetails(
     }
   };
   try {
-    await Promise.race([work(), sleep(90_000)]);
+    await Promise.race([work(), sleep(150_000)]);
   } catch (e) {
     log.push(`שגיאה: ${(e as Error).message}`);
   } finally {
