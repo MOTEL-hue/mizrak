@@ -4,6 +4,7 @@ import path from 'path';
 import { budgetTick, startBudgetBridge } from '@/backend/budgetBridge';
 import { isScrapeRunning } from '@/backend';
 import { startAutoUpdate } from './handlers/updater';
+import { cleanUpdaterLeftovers } from './handlers/updaterCleanup';
 import { backupBudgetDocsIfDue } from './backend/budgetDocs/docBackup';
 import { restoreOrCreateWindow } from '/@/mainWindow';
 import { logAppEvent } from './logging/operationLogger';
@@ -69,6 +70,18 @@ export async function startBackgroundMode() {
   }
 
   startBudgetBridge();
+  if (app.isPackaged && process.env.LOCALAPPDATA) {
+    try {
+      const freed = cleanUpdaterLeftovers({
+        updaterDir: path.join(process.env.LOCALAPPDATA, 'mizrak-updater'),
+        markerFile: path.join(app.getPath('userData'), 'last-cleaned-version.txt'),
+        version: app.getVersion(),
+      });
+      if (freed > 0) logAppEvent('UPDATER_LEFTOVERS_CLEANED', { mb: Math.round(freed / 1024 / 1024) });
+    } catch (e) {
+      logAppEvent('UPDATER_CLEANUP_FAILED', { errorMessage: (e as Error).message });
+    }
+  }
   const backup = () =>
     void backupBudgetDocsIfDue()
       .then((name) => name && logAppEvent('BUDGET_BACKUP_DONE', { name }))
