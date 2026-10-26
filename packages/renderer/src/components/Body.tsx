@@ -30,11 +30,11 @@ const Body = () => {
   const configStore = useConfigStore();
   const [askScrapeMode, setAskScrapeMode] = useState(false);
   const runScrape = useCallback(
-    (mode?: 'all') => {
+    (mode?: 'all', onlyAccountId?: string) => {
       setAskScrapeMode(false);
       configStore.clearScrapingStatus();
       configStore.beginScrape();
-      return scrape(configStore.handleScrapingEvent.bind(configStore), mode);
+      return scrape(configStore.handleScrapingEvent.bind(configStore), mode, onlyAccountId);
     },
     [configStore],
   );
@@ -102,6 +102,7 @@ const Body = () => {
                   accounts={configStore.importers}
                   isScraping={configStore.isScraping}
                   showModal={showModal}
+                  onScrapeOne={(accountId) => void runScrape('all', accountId)}
                   handleNewAccountClicked={newScraperClicked}
                 />
               </AccountsContainer>

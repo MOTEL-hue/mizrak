@@ -51,9 +51,9 @@ export async function getResumeInfo(): Promise<{ count: number; savedAt: number 
   return electron.ipcRenderer.invoke('getResumeInfo');
 }
 
-export async function scrape(handleScrapingEvent: HandleScrapingEvent, mode?: 'all') {
+export async function scrape(handleScrapingEvent: HandleScrapingEvent, mode?: 'all', onlyAccountId?: string) {
   console.log('Sending scrape event to main');
-  await electron.ipcRenderer.send('scrape', mode);
+  await electron.ipcRenderer.send('scrape', mode, onlyAccountId);
   if (!progressListenerDefined) {
     electron.ipcRenderer.on('scrapingProgress', (_, progressEventStr) => {
       const progressEvent = JSON.parse(progressEventStr);

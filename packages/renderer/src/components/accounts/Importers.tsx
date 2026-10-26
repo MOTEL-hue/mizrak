@@ -1,6 +1,7 @@
 import logsIcon from '../../assets/card-text.svg';
 import settingsIcon from '../../assets/gear.svg';
 import resultsIcon from '../../assets/results.svg';
+import syncOneIcon from '../../assets/sync-one.svg';
 import {
   AccountStatus,
   ModalStatus,
@@ -16,10 +17,11 @@ interface ImportersProps {
   accounts: AccountType[];
   isScraping: boolean;
   showModal: (AccountType: AccountType, ModalStatus: ModalStatus) => void;
+  onScrapeOne?: (accountId: string) => void;
   handleNewAccountClicked?: () => void;
 }
 
-function Importers({ accounts, isScraping, showModal, handleNewAccountClicked }: ImportersProps) {
+function Importers({ accounts, isScraping, showModal, onScrapeOne, handleNewAccountClicked }: ImportersProps) {
   const configStore = useConfigStore();
   return (
     <>
@@ -30,9 +32,15 @@ function Importers({ accounts, isScraping, showModal, handleNewAccountClicked }:
             account={account}
             onToggleActive={() => configStore.toggleImporterActive(account.id)}
             disabled={isScraping}
-            actionButtons={getActionButtons(showModal, account, isScraping, () => {
-              configStore.openResults(account.companyId as OutputVendorName);
-            })}
+            actionButtons={getActionButtons(
+              showModal,
+              account,
+              isScraping,
+              () => {
+                configStore.openResults(account.companyId as OutputVendorName);
+              },
+              onScrapeOne ? () => onScrapeOne(account.id) : undefined,
+            )}
           />
         );
       })}
@@ -46,6 +54,7 @@ export function getActionButtons(
   account: AccountType,
   isScraping: boolean,
   openResultsHandler?: () => void,
+  scrapeOneHandler?: () => void,
 ): ActionButton[] {
   const logsActionButton = {
     icon: logsIcon,
@@ -75,6 +84,10 @@ export function getActionButtons(
 
   if (shouldLog) {
     actionButtons.push(logsActionButton);
+  }
+
+  if (!isScraping && scrapeOneHandler && account.type === TypeOfAccount.IMPORTER) {
+    actionButtons.push({ icon: syncOneIcon, clickHandler: scrapeOneHandler, tooltipText: 'סנכרון רק החשבון הזה' });
   }
 
   if (!isScraping) {

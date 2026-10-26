@@ -87,9 +87,19 @@ export const registerHandlers = () => {
   });
 
   ipcMain.removeAllListeners('scrape');
-  ipcMain.on('scrape', async (event: IpcMainEvent, mode?: string) => {
-    if (mode === 'all') await clearResume();
-    const config = await getConfig();
+  ipcMain.on('scrape', async (event: IpcMainEvent, mode?: string, onlyAccountId?: string) => {
+    if (mode === 'all' || onlyAccountId) await clearResume();
+    const fullConfig = await getConfig();
+    // סנכרון חשבון אחד: שאר החשבונות לא נסרקים בהרצה הזו (ההגדרה השמורה לא משתנה)
+    const config = onlyAccountId
+      ? {
+          ...fullConfig,
+          scraping: {
+            ...fullConfig.scraping,
+            accountsToScrape: fullConfig.scraping.accountsToScrape.map((a) => ({ ...a, active: a.id === onlyAccountId })),
+          },
+        }
+      : fullConfig;
     const eventSubscriber = new BudgetTrackingEventEmitter();
     eventSubscriber.onAny((eventName, eventData) => {
       event.reply('scrapingProgress', JSON.stringify({ eventName, eventData }));
