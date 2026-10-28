@@ -134,6 +134,24 @@ export async function readPagiTransferDetails(
       log.push(`חלון של הדפדפן: ${dialog.message().slice(0, 80)}`);
       void dialog.dismiss().catch(() => undefined);
     });
+    // בקשות לרשת אחרי הלחיצה הראשונה: מה נשלח, מה חזר, ומה נשאר תלוי (הלחיצה מפעילה בקשה לשרת)
+    const pendingRequests = new Map<string, number>();
+    let watching = false;
+    page.on('request', (request) => {
+      if (!watching || !/pagi\.co\.il/.test(request.url())) return;
+      pendingRequests.set(request.url(), Date.now());
+      log.push(`בקשה: ${request.method()} ${mask(request.url()).slice(-90)}`);
+    });
+    page.on('response', (response) => {
+      if (!watching || !pendingRequests.has(response.url())) return;
+      pendingRequests.delete(response.url());
+      log.push(`תשובה ${response.status()}: ${mask(response.url()).slice(-70)}`);
+    });
+    page.on('requestfailed', (request) => {
+      if (!watching || !pendingRequests.has(request.url())) return;
+      pendingRequests.delete(request.url());
+      log.push(`בקשה נכשלה: ${request.failure()?.errorText ?? ''} ${mask(request.url()).slice(-70)}`);
+    });
     browser.on('targetcreated', (target) => log.push(`נפתח יעד חדש: ${mask(target.url()).slice(0, 80)}`));
     await page.goto(TRANSACTIONS_URL, { waitUntil: 'domcontentloaded' });
     log.push('הדף נטען');
@@ -183,12 +201,28 @@ export async function readPagiTransferDetails(
       ];
       for (const [name, doClick] of clicks) {
         log.push(`העברה ${i + 1}: ${name}`);
+        watching = true;
         await limited(doClick(), 8000, name).catch((e) => log.push(`העברה ${i + 1}: ${(e as Error).message}`));
         for (let attempt = 0; attempt < 5 && !details.length; attempt++) {
           await sleep(1000);
           details = await limited(readDialog(page), 15_000, 'בדיקת חלון').catch(() => []);
         }
-        log.push(`העברה ${i + 1}: אחרי ${name}, נקראו ${details.length}`);
+        log.push(`העברה ${i + 1}: אחרי ${name}, נקראו ${details.length}; בקשות תלויות: ${pendingRequests.size}`);
+        if (i === 0 && name === 'לחיצה') {
+          // מצב המסגרות אחרי הלחיצה: האם החלון קיים אצל אחת מהן
+          for (const frame of page.frames()) {
+            const info = await limited(
+              frame.evaluate(() => ({
+                text: (document.body?.innerText ?? '').includes('פירוט העברות'),
+                dialogs: document.querySelectorAll('.ui-dialog, [role=dialog], .modal, .popup').length,
+                len: (document.body?.innerText ?? '').length,
+              })),
+              3000,
+              'מצב מסגרת',
+            ).catch((e) => ({ text: false, dialogs: -1, len: -1, error: (e as Error).message }));
+            log.push(`מסגרת ${mask(frame.url().slice(-50))}: ${JSON.stringify(info)}`);
+          }
+        }
         if (details.length) {
           how = name;
           break;
@@ -211,7 +245,7 @@ export async function readPagiTransferDetails(
     }
   };
   try {
-    await Promise.race([work(), sleep(90_000)]);
+    await Promise.race([work(), sleep(110_000)]);
     cancelled = true;
   } catch (e) {
     log.push(`שגיאה: ${(e as Error).message}`);
