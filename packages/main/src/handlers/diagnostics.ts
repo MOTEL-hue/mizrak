@@ -18,7 +18,8 @@ async function describeConfig(): Promise<string> {
   try {
     const config = await getConfig();
     const importers = (config.scraping.accountsToScrape ?? []).map(
-      (a) => `  - ${a.key}: ${a.active === false ? 'כבוי' : 'פעיל'} (${Object.keys(a.loginFields ?? {}).length} שדות מולאו)`,
+      (a) =>
+        `  - ${a.key}: ${a.active === false ? 'כבוי' : 'פעיל'} (${Object.keys(a.loginFields ?? {}).length} שדות מולאו)`,
     );
     const exporters = Object.entries(config.outputVendors ?? {}).map(
       ([name, vendor]) => `  - ${name}: ${(vendor as { active?: boolean })?.active ? 'פעיל' : 'כבוי'}`,
@@ -49,6 +50,21 @@ async function mortgageDiagnostic(): Promise<string> {
 async function transferDiagnostic(): Promise<string> {
   try {
     return (await fs.promises.readFile(path.join(userDataPath, TRANSFER_DIAGNOSTIC_FILE), 'utf8')).slice(0, 12000);
+  } catch {
+    return '(אין)';
+  }
+}
+
+// מבנה אזור ההלוואות בבנקים שעדיין אין להם קורא (שלב גילוי)
+async function loanDiscoveryDiagnostic(): Promise<string> {
+  try {
+    const names = (await fs.promises.readdir(userDataPath)).filter((n) => /^loan-discovery-.+\.txt$/.test(n));
+    const parts = await Promise.all(
+      names.map(
+        async (n) => `## ${n}\n${(await fs.promises.readFile(path.join(userDataPath, n), 'utf8')).slice(0, 8000)}`,
+      ),
+    );
+    return parts.join('\n\n') || '(אין)';
   } catch {
     return '(אין)';
   }
@@ -85,6 +101,9 @@ export async function buildDiagnosticsReport(): Promise<string> {
     '== מה פאג"י הציג בהעברות ==',
     await transferDiagnostic(),
     '',
+    '== גילוי הלוואות ומשכנתא בבנקים נוספים ==',
+    await loanDiscoveryDiagnostic(),
+    '',
     `== הלוג (${MAX_LOG_LINES} השורות האחרונות) ==`,
     logs,
   ].join('\n');
@@ -107,7 +126,9 @@ export const isBrowserInstalledHandler = async () => {
     const platform = detectBrowserPlatform();
     if (!platform) return false;
     const installed = await getInstalledBrowsers({ cacheDir: userDataPath });
-    return installed.some((b) => b.browser === Browser.CHROMIUM && b.platform === platform && fs.existsSync(b.executablePath));
+    return installed.some(
+      (b) => b.browser === Browser.CHROMIUM && b.platform === platform && fs.existsSync(b.executablePath),
+    );
   } catch {
     return false;
   }

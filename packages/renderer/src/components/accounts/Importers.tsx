@@ -52,8 +52,9 @@ function Importers({ accounts, isScraping, showModal, onScrapeOne, handleNewAcco
   );
 }
 
-// בפאג"י ובבינלאומי אפשר לבחור אם לקרוא גם את המשכנתא
-const hasMortgage = (account: AccountType) => account.companyId === 'pagi' || account.companyId === 'beinleumi';
+// בבנקים שיש להם קורא הלוואות אפשר לבחור אם לקרוא גם אותן (ראו loanDiscovery בצד הראשי)
+const LOAN_BANKS = ['pagi', 'beinleumi', 'hapoalim'];
+const hasMortgage = (account: AccountType) => LOAN_BANKS.includes(account.companyId);
 
 export function getActionButtons(
   showModal: (AccountType: AccountType, ModalStatus: ModalStatus) => void,
@@ -97,12 +98,12 @@ export function getActionButtons(
       actionButtons.push({
         icon: syncOneIcon,
         clickHandler: () => scrapeOneHandler('without'),
-        tooltipText: 'סנכרון רק החשבון הזה, בלי משכנתא',
+        tooltipText: 'סנכרון רק החשבון הזה, בלי משכנתא והלוואות',
       });
       actionButtons.push({
         icon: syncMortgageIcon,
         clickHandler: () => scrapeOneHandler('with'),
-        tooltipText: 'סנכרון רק החשבון הזה, כולל משכנתא',
+        tooltipText: 'סנכרון רק החשבון הזה, כולל משכנתא והלוואות',
       });
     } else {
       actionButtons.push({

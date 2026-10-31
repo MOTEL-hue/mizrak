@@ -5,7 +5,8 @@ import { logAppEvent } from '/@/logging/operationLogger';
 import puppeteer from 'puppeteer-core';
 import { patchVisaCalLogin } from './calLoginPatch';
 import { grabMortgagesFromLoggedInBrowser } from './pagiMortgages';
-import { shouldReadMortgage } from './mortgageSchedule';
+import { discoverLoanPages, needsDiscovery } from './loanDiscovery';
+import { isMortgageForced, shouldReadMortgage } from './mortgageSchedule';
 import { attachRecipients, readPagiTransferDetails } from './pagiTransferProbe';
 import { userDataPath } from '@/app-globals';
 import path from 'path';
@@ -93,7 +94,11 @@ export async function scrape(
       await page.evaluateOnNewDocument(() => Object.defineProperty(navigator, 'webdriver', { get: () => undefined }));
     }
     page.on('framenavigated', (frame) => {
-      if (frame === page.mainFrame() && !assistedCompanies.has(companyId) && /perfdrive\.com|radware/i.test(frame.url())) {
+      if (
+        frame === page.mainFrame() &&
+        !assistedCompanies.has(companyId) &&
+        /perfdrive\.com|radware/i.test(frame.url())
+      ) {
         botBlockedUntil.set(companyId, Date.now() + BOT_BLOCK_COOLDOWN_MS);
         logAppEvent('BOT_CHALLENGE_DETECTED', { company: companyId });
         // אין טעם להמתין חמש דקות לכפתור שלא יופיע
@@ -109,9 +114,14 @@ export async function scrape(
             page.frames().map(async (frame) => {
               const items = await frame
                 .evaluate(() =>
-                  Array.from(document.querySelectorAll('input, button, iframe, [role="tab"], a[id], [id^="cc"], [id*="ogin"]'))
+                  Array.from(
+                    document.querySelectorAll('input, button, iframe, [role="tab"], a[id], [id^="cc"], [id*="ogin"]'),
+                  )
                     .slice(0, 60)
-                    .map((el) => `${el.tagName.toLowerCase()}#${el.id}.${el.getAttribute('formcontrolname') ?? el.getAttribute('name') ?? ''}:${(el.textContent ?? '').trim().slice(0, 25)}`)
+                    .map(
+                      (el) =>
+                        `${el.tagName.toLowerCase()}#${el.id}.${el.getAttribute('formcontrolname') ?? el.getAttribute('name') ?? ''}:${(el.textContent ?? '').trim().slice(0, 25)}`,
+                    )
                     .join(' ; '),
                 )
                 .catch(() => '');
@@ -129,7 +139,8 @@ export async function scrape(
       try {
         if (page.isClosed()) return;
         const snap = await page.evaluate(
-          () => `${location.href} | ${document.title} | ${(document.body?.innerText ?? '').replace(/\s+/g, ' ').slice(0, 400)}`,
+          () =>
+            `${location.href} | ${document.title} | ${(document.body?.innerText ?? '').replace(/\s+/g, ' ').slice(0, 400)}`,
         );
         logAppEvent('PAGE_SNAPSHOT_90S', { company: companyId, snapshot: snap });
       } catch {
@@ -138,7 +149,7 @@ export async function scrape(
     }, 90_000);
   };
   let ownBrowser: Awaited<ReturnType<typeof puppeteer.launch>> | undefined;
-  if (companyId === 'pagi' || companyId === 'visaCal') {
+  if (companyId === 'pagi' || companyId === 'visaCal' || (needsDiscovery(companyId) && isMortgageForced())) {
     // כאל מנטרל את כפתור הכניסה בדפדפן שמסומן כ"נשלט אוטומטית". מסירים את הסימון (דגל האוטומציה ו-navigator.webdriver)
     const stealth = companyId === 'visaCal';
     ownBrowser = await puppeteer.launch({
@@ -173,6 +184,10 @@ export async function scrape(
     if (scrapeResult.success && companyId === 'pagi' && shouldReadMortgage()) {
       emitProgressEvent(companyId, 'READING_MORTGAGE');
       await grabMortgagesFromLoggedInBrowser(ownBrowser, Math.max(timeout, 150_000));
+    }
+    if (scrapeResult.success && needsDiscovery(companyId) && isMortgageForced()) {
+      emitProgressEvent(companyId, 'READING_LOANS');
+      await discoverLoanPages(ownBrowser, companyId, 60_000);
     }
     await ownBrowser.close().catch(() => undefined);
   }

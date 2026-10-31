@@ -32,6 +32,7 @@ const STEP_TEXT: Record<string, string> = {
   TERMINATING: 'מסיים וסוגר את הדפדפן',
   READING_MORTGAGE: 'קורא את פירוט המשכנתא',
   READING_TRANSFERS: 'קורא שמות מקבלים בהעברות',
+  READING_LOANS: 'קורא הלוואות ומשכנתא',
 };
 
 export function stepText(message?: string) {
