@@ -1694,10 +1694,16 @@ let mzAdd = 'income', mzHist = { tf: 'all', q: '', pft: 'none', year: null, mont
 const MZ_CLASSES = { income: 'הכנסה חייבת במעשרות', payment: 'תרומה', payRec: 'תרומה קבועה' };
 const mzTitheOpts = (sel = '', first = 'ברירת מחדל (הכנסה חייבת, הוצאה רגילה)') => `<option value="">${first}</option><option value="none" ${sel === 'none' ? 'selected' : ''}>לא נספרת במעשרות</option>${Object.entries(MZ_CLASSES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('')}`;
 const mzTxTitheOpts = sel => mzTitheOpts(sel, '🌾 מעשרות: לפי כלל / ברירת מחדל');
-// <mz-from> "תאריך תחילת חישוב מתנועות" (settings.maaser.txFrom) וייבוא נתונים ישנים. פונקציות בלי מצב, נבדקות ב-budget/tests/test_maaser_from.py.
-// לפני התאריך: תנועות החשבון לא נספרות, רק רשומות מיובאות או ידניות. מהתאריך: לפי התנועות, ורשומה מיובאת (imp) מהתקופה הזו מסומנת ולא נספרת. בלי תאריך: הכול כמו קודם
-const mzTxIn = (date, from) => !from || String(date).slice(0, 10) >= from;
-const mzOffImp = (e, from) => !!(from && e.imp && String(e.date).slice(0, 10) >= from);
+// <mz-from> "תקופות בלי תנועות חשבון" (settings.maaser.noTx = [{ from, to }], ריק = בלי גבול) וייבוא נתונים ישנים. פונקציות בלי מצב, נבדקות ב-budget/tests/test_maaser_from.py.
+// בתוך תקופה: תנועות החשבון לא נספרות, ורשומות מיובאות או ידניות נספרות תמיד. מחוץ לתקופות: כמו תמיד, ורשומה מיובאת (imp) מסומנת ולא נספרת (שמותיה שונים מהבנק, ולכן אין זיהוי כפילות). בלי תקופות: הכול כמו קודם
+const mzDay = d => String(d || '').slice(0, 10);
+const mzPrevDay = iso => new Date(Date.parse(iso + 'T12:00:00Z') - 864e5).toISOString().slice(0, 10);
+const mzRanges = m => { if (m.txFrom && !Array.isArray(m.noTx)) m.noTx = [{ from: '', to: mzPrevDay(m.txFrom) }]; delete m.txFrom; return (Array.isArray(m.noTx) ? m.noTx : []).filter(r => r && (r.from || r.to)); }; // "תאריך תחילת חישוב" ישן הופך לתקופה "מההתחלה עד יום לפניו": אותה התנהגות
+const mzInNoTx = (date, ranges) => { const d = mzDay(date); return (ranges || []).some(r => (!r.from || d >= r.from) && (!r.to || d <= r.to)); };
+const mzTxIn = (date, ranges) => !mzInNoTx(date, ranges);
+const mzOffImp = (e, ranges) => !!((ranges || []).length && e.imp && !mzInNoTx(e.date, ranges));
+const mzRangeErr = r => !r.from && !r.to ? 'בוחרים לפחות תאריך אחד' : r.from && r.to && r.from > r.to ? 'תאריך ההתחלה אחרי תאריך הסיום' : '';
+const mzRangesOverlap = rs => rs.some((a, i) => rs.some((b, j) => j > i && (!a.from || !b.to || a.from <= b.to) && (!b.from || !a.to || b.from <= a.to)));
 const mzHash = s => { let a = 0xdeadbeef, b = 0x41c6ce57; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 2654435761); b = Math.imul(b ^ c, 1597334677); } a = Math.imul(a ^ (a >>> 16), 2246822507) ^ Math.imul(b ^ (b >>> 13), 3266489909); b = Math.imul(b ^ (b >>> 16), 2246822507) ^ Math.imul(a ^ (a >>> 13), 3266489909); return (b >>> 0).toString(36) + (a >>> 0).toString(36); };
 const mzImpKey = e => `${String(e.date).slice(0, 10)}|${e.type}|${(+e.amount).toFixed(2)}|${String(e.description || '').trim().replace(/\s+/g, ' ').toLowerCase()}`;
 const MZ_IMP_FIELDS = [['date', 'תאריך', /תאריך|date/i], ['amount', 'סכום', /סכום|amount|sum/i], ['description', 'תיאור', /תיאור|פירוט|פרטים|description|desc/i], ['type', 'סוג', /סוג|type|kind/i]];
@@ -1705,14 +1711,14 @@ const mzImpType = (v, def) => { const s = String(v || '').trim().toLowerCase(); 
 function mzImpDetect(headers) { const used = new Set(), map = {}; MZ_IMP_FIELDS.forEach(([k, , re]) => { const i = headers.findIndex((h, n) => !used.has(n) && re.test(String(h).replace(/["']/g, ''))); map[k] = i; if (i >= 0) used.add(i); }); return map; }
 // שורות לייבוא עם מצב: new (חדשה; overlap = חופפת לתנועת חשבון באותו סכום עד 3 ימים), off (מהתאריך והלאה: תיובא ולא תיספר), dup (כבר קיימת), twice (מופיעה שוב בקובץ).
 // המזהה נגזר מהשורה עצמה, ולכן אותה שורה לא נכנסת פעמיים גם בייבוא חוזר. txs: תנועות החשבון { date, type: income/expense, amount }
-function mzImpRows(rows, map, defType, existing, txs, from) {
+function mzImpRows(rows, map, defType, existing, txs, ranges) {
   const cell = (r, k) => map[k] >= 0 ? r[map[k]] : '', ids = new Set(existing.map(e => e.id)), keys = new Set(existing.map(mzImpKey)), seen = new Set(), out = [], skipped = [], day = d => Date.parse(String(d).slice(0, 10)) / 864e5;
   rows.forEach((r, n) => {
     const date = bfDate(cell(r, 'date')), amount = Math.round(Math.abs(bfNum(cell(r, 'amount'))) * 100) / 100;
     if (!date || !amount) { if (r.some(Boolean)) skipped.push(n + 1); return; }
     const type = map.type >= 0 ? mzImpType(cell(r, 'type'), defType) : defType, description = String(cell(r, 'description') || '').trim() || (type === 'income' ? 'הכנסה (ייבוא)' : 'תרומה (ייבוא)');
     const e = { date, type, amount, description }, key = mzImpKey(e); e.id = 'mzi-' + mzHash(key);
-    if (seen.has(key)) e.st = 'twice'; else if (ids.has(e.id) || keys.has(key)) e.st = 'dup'; else if (from && date >= from) e.st = 'off';
+    if (seen.has(key)) e.st = 'twice'; else if (ids.has(e.id) || keys.has(key)) e.st = 'dup'; else if ((ranges || []).length && !mzInNoTx(date, ranges)) e.st = 'off';
     else { e.st = 'new'; e.overlap = txs.some(t => (t.type === 'income') === (type === 'income') && Math.abs(+t.amount - amount) < 0.005 && Math.abs(day(t.date) - day(date)) <= 3); }
     seen.add(key); out.push(e);
   });
@@ -1722,10 +1728,10 @@ function mzImpRows(rows, map, defType, existing, txs, from) {
 // תנועות בנק שנספרות במעשרות: לפי התנועה (tx.tithe), הכלל (rules[].tithe), הקטגוריה (settings.maaser.cats), ואחרת ברירת המחדל: כל הכנסה חייבת במעשרות וכל הוצאה רגילה. 'none' מוציא מהספירה. רישום ידני באותו סכום ובטווח 3 ימים נחשב אותה תנועה, ולא נספר פעמיים
 function mzBank() {
   const cats = mz().cats || {}, rl = ruleList(), out = [];
-  const from = mz().txFrom || '', manual = S.data.tithes.filter(e => !mzOffImp(e, from)).map(e => ({ type: e.type, amt: +e.amount, rd: MH.isoRD(e.date), used: false }));
+  const from = mzRanges(mz()), manual = S.data.tithes.filter(e => !mzOffImp(e, from)).map(e => ({ type: e.type, amt: +e.amount, rd: MH.isoRD(e.date), used: false }));
   const nb = nbCats();
   for (const t of live('tx')) { // live כבר מוציא תנועות שלא נספרות בתקציב (העברות, כפילויות, "לא נספרת"), וכאן גם קטגוריות "לא קשור"
-    if (nb.includes(t.cat) || !mzTxIn(effDate(t), from)) continue; // לפני תאריך תחילת החישוב מתנועות: רק נתונים מיובאים או ידניים
+    if (nb.includes(t.cat) || !mzTxIn(effDate(t), from)) continue; // בתקופה בלי תנועות חשבון: רק נתונים מיובאים או ידניים
     const n = normNote(t.note), r = rl.find(x => n.includes(x.nk)), k = t.tithe || (r && r.tithe) || cats[t.cat] || (t.type === 'income' ? 'income' : ''), amt = +t.amount, type = k === 'income' ? 'income' : 'payment';
     if (!MZ_CLASSES[k] || !(amt > 0) || (k === 'income') !== (t.type === 'income')) continue; // 'none' ואי-התאמה בין סוג התנועה לסיווג מוחרגים
     const date = effDate(t), rd = MH.isoRD(date), dup = manual.find(m => !m.used && m.type === type && Math.abs(m.amt - amt) < 0.005 && Math.abs(m.rd - rd) <= 3);
@@ -1734,7 +1740,7 @@ function mzBank() {
   }
   return out;
 }
-const mzAll = () => [...S.data.tithes.map(e => mzOffImp(e, mz().txFrom) ? { ...e, off: true } : e), ...mzBank()];
+const mzAll = () => [...S.data.tithes.map(e => mzOffImp(e, mzRanges(mz())) ? { ...e, off: true } : e), ...mzBank()];
 function mzTotals() {
   let inc = 0, paid = 0; mzAll().forEach(e => { if (e.off) return; if (e.type === 'income') inc += +e.amount; if (e.type === 'payment') paid += +e.amount; });
   const oblig = inc * mz().rate, bal = Math.max(0, oblig - paid);
@@ -1844,11 +1850,15 @@ function mzNotifView() {
   <div class="mz-row"><button class="btn btn-pri" style="flex:1" id="mz-n-save">💾 שמור</button><button class="btn btn-sec" id="mz-n-test">🔍 בדוק היום</button></div>
   <div style="font-size:.68em;opacity:.55;margin-top:8px;line-height:1.4">ההתראה נשלחת מהשרת לטלפון ולמייל של מי שמורשה לתקציב, פעם אחת בכל מועד. השעה נקבעת לפי תדירות הטיימר של האתר.</div></div>`;
 }
-const mzFromLine = () => mz().txFrom ? `<div class="card" id="mz-from-line" style="font-size:.8em;line-height:1.4">📅 מחושב מתנועות החשבון מתאריך ${mzGregStr(mz().txFrom)}, לפני כן מנתונים מיובאים או שהוזנו ידנית. (משנים ב"הגדרות")</div>` : '';
+const mzRangeTxt = r => !r.from ? `עד ${mzGregStr(r.to)}` : !r.to ? `מ-${mzGregStr(r.from)} והלאה` : `בין ${mzGregStr(r.from)} ל-${mzGregStr(r.to)}`;
+const mzNoTxCount = r => { const nb = nbCats(); return live('tx').filter(t => !nb.includes(t.cat) && mzInNoTx(effDate(t), [r])).length; };
+const mzFromLine = () => { const rs = mzRanges(mz()); return rs.length ? `<div class="card" id="mz-from-line" style="font-size:.8em;line-height:1.5">${rs.map(r => `📅 ${mzRangeTxt(r)}: מחושב רק מנתונים מיובאים או ידניים`).join('<br>')}<br>בשאר הזמן: לפי תנועות החשבון. (משנים ב"הגדרות")</div>` : ''; };
 function mzSetView() {
-  const r = mz().rate, recs = S.data.titheRec, from = mz().txFrom || '';
-  return `<div class="settings-section"><div class="settings-sec-title">תאריך תחילת חישוב מתנועות</div><div style="font-size:.72em;opacity:.65;line-height:1.4">תנועות החשבון לפני התאריך הזה לא נספרות במעשרות, ולפניו החישוב לפי נתונים מיובאים או שהוזנו ידנית. מהתאריך והלאה החישוב לפי התנועות, ורשומות מיובאות מאותה תקופה מסומנות ולא נספרות פעמיים. ריק: הכול לפי התנועות, כמו תמיד.</div>
-  ${canEdit() ? `<input class="form-input" id="mz-from" type="date" value="${esc(from)}" style="margin-top:6px"><div class="mz-row" style="gap:6px;margin-top:6px"><button class="btn btn-pri" id="mz-from-save">שמירת התאריך</button>${from ? '<button class="btn btn-sec" id="mz-from-clear">ביטול התאריך</button>' : ''}</div><button class="btn btn-sec btn-full" id="mz-old" style="margin-top:8px">📥 ייבוא נתוני מעשרות ישנים (הדבקה, Excel או CSV)</button>` : `<div style="font-size:.8em;margin-top:4px">${from ? mzGregStr(from) : 'לא הוגדר'}</div>`}</div><hr class="div">
+  const r = mz().rate, recs = S.data.titheRec, rs = mzRanges(mz()), dIn = (attr, v) => `<input class="form-input" type="date" ${attr} value="${esc(v || '')}" style="flex:1;min-width:120px">`;
+  return `<div class="settings-section"><div class="settings-sec-title">תקופות בלי תנועות חשבון</div><div style="font-size:.72em;opacity:.65;line-height:1.4">בתקופה כזו תנועות החשבון לא נספרות במעשרות בכלל, והחישוב רק לפי נתונים מיובאים או שהוזנו ידנית. בשאר הזמן החישוב לפי התנועות, ורשומות מיובאות מחוץ לתקופות מסומנות ולא נספרות. תאריך ריק: בלי גבול. בלי תקופות: הכול לפי התנועות, כמו תמיד.</div>
+  ${rs.map((x, i) => `<div class="rec-card"><div class="rec-body"><div class="rec-name">${mzRangeTxt(x)}</div><div class="rec-meta">${mzNoTxCount(x)} תנועות חשבון בתקופה הזו לא ייספרו</div>${canEdit() ? `<div class="mz-row" style="gap:6px;margin-top:4px;flex-wrap:wrap">${dIn(`data-nt-from="${i}" aria-label="מתאריך"`, x.from)}${dIn(`data-nt-to="${i}" aria-label="עד תאריך"`, x.to)}<button class="btn btn-pri" data-nt-save="${i}">שמירה</button><button class="btn btn-err" data-nt-del="${i}">מחיקה</button></div>` : ''}</div></div>`).join('')}
+  ${mzRangesOverlap(rs) ? '<div style="font-size:.72em;color:#B26A00;margin-top:4px">⚠️ יש תקופות חופפות. זה בסדר: כל יום שנמצא באחת מהן לא נספר מהחשבון.</div>' : ''}
+  ${canEdit() ? `<div class="mz-row" style="gap:6px;margin-top:6px;flex-wrap:wrap">${dIn('id="nt-from" aria-label="מתאריך"')}${dIn('id="nt-to" aria-label="עד תאריך"')}<button class="btn btn-pri" id="nt-add">➕ הוספת תקופה</button></div><button class="btn btn-sec btn-full" id="mz-old" style="margin-top:8px">📥 ייבוא נתוני מעשרות ישנים (הדבקה, Excel או CSV)</button>` : ''}</div><hr class="div">
   <div class="settings-section"><div class="settings-sec-title">שיעור המעשר</div><div class="rate-grid"><button class="rate-btn ${r === .1 ? 'sel' : ''}" data-mz-rate="0.1">מעשר<small>10% מהכנסות</small></button><button class="rate-btn ${r === .2 ? 'sel' : ''}" data-mz-rate="0.2">חומש<small>20% מהכנסות</small></button></div></div><hr class="div">
   <div class="settings-section"><div class="settings-sec-title">מה נספר אוטומטית</div><div style="font-size:.72em;opacity:.65;line-height:1.4">כל הכנסה בתקציב (תנועות בנק) נספרת כחייבת במעשרות. הוצאה נספרת כתרומה רק אם סימנת אותה כך. להוצאה או להכנסה מסוימת אפשר לשנות בטבלת התנועות, בכללי הסיווג או בקטגוריות: "לא נספרת במעשרות", תרומה, תרומה קבועה או הכנסה חייבת.</div></div><hr class="div">
   <div class="settings-section"><div class="settings-sec-title">פרטיות וקוד גישה</div><div style="font-size:.72em;opacity:.65;line-height:1.4">הסתרת הסכומים (👁 בכותרת) וקוד הגישה פועלים על כל התקציב כולל המעשרות, ומגדירים אותם בלשונית "עוד".</div></div><hr class="div">
@@ -1879,7 +1889,7 @@ function mzOldImport() {
     <div id="mo-map"></div><div id="mo-prev"></div>
     <div class="row" style="margin-top:12px"><button class="b" id="mo-ok" disabled>ייבוא</button><button class="b sec" id="mo-no">סגירה</button></div><div id="mo-hist"></div>`);
   let table = null, map = {}, built = null;
-  const ST = { new: 'חדשה', off: 'תיובא ולא תיספר (מחושב מתנועות)', dup: 'כבר קיימת', twice: 'מופיעה שוב בקובץ' };
+  const ST = { new: 'חדשה', off: 'תיובא ולא תיספר (מחוץ לתקופות, מחושב מתנועות)', dup: 'כבר קיימת', twice: 'מופיעה שוב בקובץ' };
   const hist = () => {
     const g = {}; S.data.tithes.filter(e => e.imp).forEach(e => { (g[e.imp] = g[e.imp] || []).push(e); });
     const bs = Object.entries(g).sort((a, b) => b[0].localeCompare(a[0]));
@@ -1890,9 +1900,9 @@ function mzOldImport() {
     if (!table) return;
     m.querySelectorAll('[data-mo]').forEach(s => { map[s.dataset.mo] = +s.value; });
     const txs = live('tx').filter(t => !nbCats().includes(t.cat)).map(t => ({ date: effDate(t), type: t.type, amount: +t.amount }));
-    built = mzImpRows(table.rows, map, m.querySelector('#mo-def').value, S.data.tithes, txs, mz().txFrom || '');
+    built = mzImpRows(table.rows, map, m.querySelector('#mo-def').value, S.data.tithes, txs, mzRanges(mz()));
     const n = k => built.rows.filter(e => e.st === k).length, ov = built.rows.filter(e => e.overlap).length, go = n('new') + n('off');
-    m.querySelector('#mo-prev').innerHTML = built.rows.length ? `<h3>תצוגה מקדימה</h3><p>${n('new')} חדשות${n('off') ? `, ${n('off')} מהתקופה שמחושבת מתנועות (ייובאו ולא ייספרו)` : ''}${n('dup') + n('twice') ? `, ${n('dup') + n('twice')} כפולות (לא ייובאו)` : ''}${built.skipped.length ? `, ${built.skipped.length} שורות בלי תאריך או סכום דולגו` : ''}</p>${ov ? `<p class="bad">⚠️ ${ov} רשומות חופפות לתנועות בחשבון (אותו סכום, עד 3 ימים). ${mz().txFrom ? 'התנועות האלה לפני תאריך תחילת החישוב, ולכן לא נספרות. כדאי לוודא שזה הרצוי.' : 'בלי תאריך תחילת חישוב, רשומה כזו ותנועת החשבון נחשבות אחת.'}</p>` : ''}
+    m.querySelector('#mo-prev').innerHTML = built.rows.length ? `<h3>תצוגה מקדימה</h3><p>${n('new')} חדשות${n('off') ? `, ${n('off')} מהתקופה שמחושבת מתנועות (ייובאו ולא ייספרו)` : ''}${n('dup') + n('twice') ? `, ${n('dup') + n('twice')} כפולות (לא ייובאו)` : ''}${built.skipped.length ? `, ${built.skipped.length} שורות בלי תאריך או סכום דולגו` : ''}</p>${ov ? `<p class="bad">⚠️ ${ov} רשומות חופפות לתנועות בחשבון (אותו סכום, עד 3 ימים). ${mzRanges(mz()).length ? 'התנועות האלה בתקופה בלי תנועות חשבון, ולכן לא נספרות. כדאי לוודא שזה הרצוי.' : 'בלי תקופות, רשומה כזו ותנועת החשבון נחשבות אחת.'}</p>` : ''}
       <div class="scroll"><table><tr><th>תאריך</th><th>סוג</th><th>תיאור</th><th>סכום</th><th></th></tr>${built.rows.slice(0, 80).map(e => `<tr${e.st === 'dup' || e.st === 'twice' ? ' style="opacity:.5"' : ''}><td>${esc(e.date)}</td><td>${e.type === 'income' ? 'הכנסה' : 'תרומה'}</td><td>${esc(e.description)}</td><td>${fmt(e.amount)}</td><td>${ST[e.st]}${e.overlap ? ' ⚠️ חופפת לתנועה' : ''}</td></tr>`).join('')}</table></div>` : '';
     m.querySelector('#mo-ok').disabled = !go;
   };
@@ -1944,8 +1954,10 @@ function bindMaaser() {
   $('#mz-q')?.addEventListener('input', e => { mzHist.q = e.target.value; $('#mz-list').innerHTML = mzList(); });
   $('#mz-exp')?.addEventListener('click', () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ version: 4, exportDate: today(), rate: mz().rate, entries: S.data.tithes, recurring: S.data.titheRec, notif: mz().notif }, null, 2)], { type: 'application/json' })); a.download = `maaser_${today()}.json`; a.click(); toast('יוצא בהצלחה ✓'); });
   $('#mz-imp')?.addEventListener('click', () => { const f = document.createElement('input'); f.type = 'file'; f.accept = '.json'; f.onchange = async () => { try { const n = mzImport(JSON.parse(await f.files[0].text())); mzProcess(); render(); toast(`ייבוא הצליח ✓ (${n} רשומות)`); } catch (x) { toast('קובץ לא תקין'); } }; f.click(); });
-  $('#mz-from-save')?.addEventListener('click', () => { const v = $('#mz-from').value; if (!v) return toast('בוחרים תאריך, או "ביטול התאריך"'); mz().txFrom = v; save(); render(); toast('החישוב עודכן: מתנועות החשבון מ-' + mzGregStr(v)); });
-  $('#mz-from-clear')?.addEventListener('click', () => { delete mz().txFrom; save(); render(); toast('בוטל: הכול מחושב לפי התנועות'); });
+  const ntSet = (i, r) => { const err = mzRangeErr(r); if (err) return toast(err); const rs = [...mzRanges(mz())]; if (i < 0) rs.push(r); else rs[i] = r; mz().noTx = rs; save(); render(); toast(`נשמר: ${mzRangeTxt(r)} מחושב רק מנתונים מיובאים (${mzNoTxCount(r)} תנועות חשבון לא ייספרו)`); };
+  $('#nt-add')?.addEventListener('click', () => ntSet(-1, { from: $('#nt-from').value, to: $('#nt-to').value }));
+  R.querySelectorAll('[data-nt-save]').forEach(b => b.onclick = () => { const i = +b.dataset.ntSave; ntSet(i, { from: R.querySelector(`[data-nt-from="${i}"]`).value, to: R.querySelector(`[data-nt-to="${i}"]`).value }); });
+  R.querySelectorAll('[data-nt-del]').forEach(b => b.onclick = async () => { if (!await mzConfirm('למחוק את התקופה? תנועות החשבון בה ייספרו שוב.')) return; const rs = [...mzRanges(mz())]; rs.splice(+b.dataset.ntDel, 1); mz().noTx = rs; save(); render(); });
   $('#mz-old')?.addEventListener('click', mzOldImport);
   R.querySelectorAll('[data-mz-rate]').forEach(b => b.onclick = () => { mz().rate = +b.dataset.mzRate; S.settings.tithe = Math.round(mz().rate * 100); save(); render(); });
   $('#mz-clear')?.addEventListener('click', async () => { if (!await mzConfirm('למחוק את כל נתוני המעשרות? אי אפשר לשחזר.')) return; [...S.data.tithes].forEach(x => remove('tithes', x.id)); [...S.data.titheRec].forEach(x => remove('titheRec', x.id)); render(); toast('נתוני המעשרות נמחקו'); });
