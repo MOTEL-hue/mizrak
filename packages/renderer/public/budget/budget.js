@@ -45,6 +45,13 @@ function hebNum(label) { // תשפ"ה -> 5785
 const hebYearOf = d => +new Intl.DateTimeFormat('en-u-ca-hebrew', { year: 'numeric' }).formatToParts(new Date(d + 'T12:00:00')).find(p => p.type === 'year').value;
 const hebMonthOf = d => new Intl.DateTimeFormat('he-u-ca-hebrew', { month: 'long' }).format(new Date(d + 'T12:00:00'));
 const hebDateStr = d => new Intl.DateTimeFormat('he-u-ca-hebrew', { day: 'numeric', month: 'long' }).format(new Date(d + 'T12:00:00'));
+// תאריך עברי ליד כל בורר תאריך (גם בשדות שנוצרים אחר כך). עצמאי, כדי לעבוד גם במזרק.
+{
+  const lab = i => { let l = i._hd; if (!l) { l = i._hd = document.createElement('small'); l.style.cssText = 'display:block;color:#667;font-size:.85em'; i.insertAdjacentElement('afterend', l); i.addEventListener('input', () => lab(i)); }
+    l.textContent = /^\d{4}-\d{2}-\d{2}/.test(i.value) ? '📅 ' + new Intl.DateTimeFormat('he-u-ca-hebrew', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(i.value.slice(0, 10) + 'T12:00:00')) : ''; };
+  let tm = 0; const scan = () => document.querySelectorAll('input[type=date]').forEach(i => { if (!i._hd || !i._hd.isConnected) i._hd = null; lab(i); });
+  new MutationObserver(() => { clearTimeout(tm); tm = setTimeout(scan, 50); }).observe(document.documentElement, { childList: true, subtree: true });
+}
 const yearOf = d => S.settings.calendar === 'heb' ? hebYearOf(d) : +d.slice(0, 4);
 const yearLabel = y => S.settings.calendar === 'heb' ? hebLabel(y) : String(y);
 const HEB_MONTHS = ['תשרי', 'חשון', 'כסלו', 'טבת', 'שבט', 'אדר', 'ניסן', 'אייר', 'סיון', 'תמוז', 'אב', 'אלול'];
@@ -209,7 +216,7 @@ function table(coll, cols, rows, o = {}) {
   const sum = o.sum; const total = sum ? rows.reduce((a, r) => a + (+r[sum] || 0), 0) : null;
   return `<div class="scroll"><table><tr>${cols.map(c => `<th>${c[1]}</th>`).join('')}<th></th></tr>` + rows.map(r =>
     `<tr>${cols.map(c => `<td class="${c[2] || ''}">${c[3] ? c[3](r) : esc(r[c[0]] ?? '')}${c[2] === 'n' && !c[3] && r[c[0]] !== '' && r[c[0]] != null ? ' ₪' : ''}</td>`).join('')}<td>${canEdit() ? `<button class="ic" data-edit="${coll}:${r.id}">✏️</button>${delBtn(coll, r.id)}` : ''}</td></tr>`).join('') +
-    (sum ? `<tr class="tot"><td colspan="${cols.length}">סה"כ</td><td class="n">${fmt(total)}</td></tr>` : '') + `</table></div>`;
+    (o.tot ? o.tot(rows) : sum ? `<tr class="tot"><td colspan="${cols.length}">סה"כ</td><td class="n">${fmt(total)}</td></tr>` : '') + `</table></div>`;
 }
 const addBtn = (coll, label = 'הוספה', extra = '') => canEdit() ? `<button class="b" data-add="${coll}" ${extra}>＋ ${label}</button>` : '';
 
@@ -313,6 +320,15 @@ function bizProfit(y, bizId) {
   const o = live('orders').filter(x => bizYear(x) === y && (!bizId || x.biz === bizId)), e = live('bizExp').filter(x => bizYear(x) === y && (!bizId || x.biz === bizId));
   const inc = o.reduce((a, x) => a + (+x.amount || 0), 0), c = o.reduce((a, x) => a + (+x.cost || 0), 0), ex = e.reduce((a, x) => a + (+x.amount || 0), 0);
   return { inc, cost: c + ex, net: inc - c - ex, n: o.length, unpaid: o.filter(x => !x.paid).reduce((a, x) => a + (+x.amount || 0), 0) };
+}
+const orderNet = r => (+r.amount || 0) - (+r.cost || 0);
+const netCls = v => v < 0 ? 'bad' : v > 0 ? 'good' : '';
+function bizAllTime(bizId) {
+  const o = live('orders').filter(x => x.biz === bizId), e = live('bizExp').filter(x => x.biz === bizId);
+  const ok = x => bizYear(x), oo = o.filter(ok), ee = e.filter(ok);
+  const inc = oo.reduce((a, x) => a + (+x.amount || 0), 0), oc = oo.reduce((a, x) => a + (+x.cost || 0), 0), ge = ee.reduce((a, x) => a + (+x.amount || 0), 0);
+  const first = [...oo, ...ee].map(x => x.date).filter(Boolean).sort()[0] || '';
+  return { inc, oc, ge, cost: oc + ge, net: inc - oc - ge, n: oo.length, first, unk: (o.length - oo.length) + (e.length - ee.length), oo, ee };
 }
 function alerts() {
   const a = [];
@@ -499,10 +515,17 @@ V.biz = () => {
   const unk = o.filter(x => !bizYear(x)).length + e.filter(x => !bizYear(x)).length;
   return `<div class="tabs">${bz.map(b => `<button class="${b.id === curBiz ? 'on' : ''}" data-biz="${b.id}">${esc(b.name)}</button>`).join('')}${addBtn('bizs', 'עסק חדש')}</div>
   ${!curBiz ? '<p class="mut">הוסף עסק כדי להתחיל.</p>' : `
+  ${(() => { const t = bizAllTime(curBiz), ys = years().map(yy => [yy, bizProfit(yy, curBiz)]).filter(q => q[1].n || q[1].cost); return `<div class="card"><h2>מהקמת העסק${t.first ? ` <small class="mut">(מ-${t.first.split('-').reverse().join('/')})</small>` : ''}</h2>
+  <div class="grid"><div class="kpi"><small>סך כל ההכנסות</small><strong class="good">${dd('bt-i', () => ({ title: 'סך כל ההכנסות', total: fmt(t.inc), explain: 'כל התשלומים בהזמנות של העסק, בכל השנים.', parts: t.oo.map(x => [x.client || 'הזמנה', +x.amount || 0, x.date || x.when || '']) }), fmt(t.inc))}</strong></div>
+  <div class="kpi"><small>סך כל ההוצאות</small><strong class="bad">${dd('bt-c', () => ({ title: 'סך כל ההוצאות', total: fmt(t.cost), explain: 'הוצאות על הזמנות והוצאות כלליות של העסק, בכל השנים.', parts: [['הוצאות על הזמנות', t.oc], ['הוצאות כלליות של העסק', t.ge]] }), fmt(t.cost))}</strong></div>
+  <div class="kpi"><small>נטו (הכנסות פחות הוצאות)</small><strong class="${netCls(t.net)}">${fmt(t.net)}</strong></div>
+  <div class="kpi"><small>מספר הזמנות</small><strong>${t.n}</strong></div></div>
+  ${t.unk ? `<p class="mut">לא כלול: ${t.unk} רשומות בלי שנה. <a href="#" data-sub="biz:orders">לחץ לתיקון</a></p>` : ''}
+  ${ys.length ? `<details><summary>פירוט לפי שנה</summary><div class="scroll"><table><tr><th>שנה</th><th>הכנסות</th><th>הוצאות</th><th>נטו</th></tr>${ys.map(q => `<tr><td>${yearLabel(q[0])}</td><td class="n">${fmt(q[1].inc)}</td><td class="n">${fmt(q[1].cost)}</td><td class="n ${netCls(q[1].net)}">${fmt(q[1].net)}</td></tr>`).join('')}</table></div></details>` : ''}</div>`; })()}
   <div class="grid"><div class="kpi"><small>הכנסות ${yearLabel(y)}</small><strong>${dd('b-i', () => ({ title: `הכנסות העסק ${yearLabel(y)}`, total: fmt(p.inc), explain: 'תשלומים מלקוחות בהזמנות של השנה.', parts: yo.map(x => [x.client || 'הזמנה', +x.amount || 0, [x.date || x.when || '', x.paid ? '' : 'לא שולם'].filter(Boolean).join(' · ')]) }), fmt(p.inc))}</strong></div><div class="kpi"><small>הוצאות</small><strong>${dd('b-c', () => ({ title: `הוצאות העסק ${yearLabel(y)}`, total: fmt(p.cost), explain: 'הוצאות על הזמנות בתוספת הוצאות העסק של השנה.', parts: [...yo.filter(x => +x.cost).map(x => [x.client || 'הזמנה', +x.cost || 0, 'הוצאה על הזמנה']), ...ye.map(x => [x.item || 'הוצאה', +x.amount || 0, x.date || x.when || ''])] }), fmt(p.cost))}</strong></div><div class="kpi"><small>רווח</small><strong class="${p.net < 0 ? 'bad' : 'good'}">${dd('b-n', () => ({ title: 'רווח העסק', total: fmt(p.net), explain: 'הכנסות פחות הוצאות על הזמנות והוצאות העסק.', parts: [['הכנסות', p.inc], ['הוצאות', -p.cost]] }), fmt(p.net))}</strong></div><div class="kpi"><small>ממוצע חודשי</small><strong>${dd('b-a', () => ({ title: 'ממוצע חודשי', total: fmt(p.net / 12), explain: 'הרווח השנתי מחולק ב-12 חודשים.', parts: [['רווח שנתי', p.net], ['מחולק ב-12', p.net / 12]] }), fmt(p.net / 12))}</strong></div><div class="kpi"><small>טרם שולם</small><strong class="bad">${dd('b-u', () => ({ title: 'טרם שולם', total: fmt(p.unpaid), explain: 'הזמנות של השנה שסומנו כלא שולמו.', parts: yo.filter(x => !x.paid).map(x => [x.client || 'הזמנה', +x.amount || 0, x.date || x.when || '']) }), fmt(p.unpaid))}</strong></div></div>
   <div class="tabs">${[['orders', 'הזמנות'], ['exp', 'הוצאות'], ['inv', 'חשבוניות וקבלות'], ['cmp', 'השוואת שנים']].map(t => `<button class="${sub === t[0] ? 'on' : ''}" data-sub="biz:${t[0]}">${t[1]}</button>`).join('')}<button class="on" data-edit="bizs:${curBiz}" style="background:var(--surface);color:var(--text)!important;border:1px solid var(--border)">✏️ פרטי עסק</button></div>
   ${unk ? `<div class="alert">יש ${unk} רשומות בלי שנה מזוהה — הן לא נספרות בשום שנה. ערוך אותן והוסף תאריך.</div>` : ''}
-  ${sub === 'orders' ? `<div class="card">${table('orders', [['client', 'לקוח'], ['when', 'מועד', '', r => esc(r.date ? r.date.split('-').reverse().join('/') : r.when)], ['amount', 'תשלום', 'n'], ['cost', 'הוצאות', 'n'], ['paid', 'שולם', '', r => r.paid ? '✓' : '<b class="bad">✗</b>'], ['inv', '', '', r => canEdit() ? `<button class="ic" data-inv="${r.id}" title="הפקת מסמך">🧾</button>` : '']], yo, { sum: 'amount' })}${addBtn('orders', 'הזמנה', `data-extra='${JSON.stringify({ biz: curBiz })}'`)}</div>` : ''}
+  ${sub === 'orders' ? `<div class="card">${table('orders', [['client', 'לקוח'], ['when', 'מועד', '', r => esc(r.date ? r.date.split('-').reverse().join('/') : r.when)], ['amount', 'תשלום', 'n'], ['cost', 'הוצאות', 'n'], ['net', 'נטו', 'n', r => `<b class="${netCls(orderNet(r))}">${fmt(orderNet(r))}</b>`], ['paid', 'שולם', '', r => r.paid ? '✓' : '<b class="bad">✗</b>'], ['inv', '', '', r => canEdit() ? `<button class="ic" data-inv="${r.id}" title="הפקת מסמך">🧾</button>` : '']], yo, { tot: rs => { const a = rs.reduce((t, r) => t + (+r.amount || 0), 0), c = rs.reduce((t, r) => t + (+r.cost || 0), 0); return `<tr class="tot"><td colspan="2">סה"כ</td><td class="n">${fmt(a)}</td><td class="n">${fmt(c)}</td><td class="n ${netCls(a - c)}">${fmt(a - c)}</td><td colspan="3"></td></tr>`; } })}${addBtn('orders', 'הזמנה', `data-extra='${JSON.stringify({ biz: curBiz })}'`)}</div>` : ''}
   ${sub === 'exp' ? `<div class="card">${table('bizExp', [['item', 'הוצאה'], ['when', 'מועד', '', r => esc(r.date ? r.date.split('-').reverse().join('/') : r.when)], ['amount', 'סכום', 'n']], ye, { sum: 'amount' })}${addBtn('bizExp', 'הוצאה', `data-extra='${JSON.stringify({ biz: curBiz })}'`)}</div>` : ''}
   ${sub === 'inv' ? `<div class="card">${table('invoices', [['num', 'מספר'], ['kind', 'סוג'], ['client', 'לקוח'], ['date', 'תאריך'], ['amount', 'סכום', 'n'], ['p', '', '', r => `<button class="ic" data-print="${r.id}">🖨️</button>`]], live('invoices').filter(x => x.biz === curBiz).sort((a, b) => (b.num || 0) - (a.num || 0)))}${addBtn('invoices', 'מסמך חדש', `data-extra='${JSON.stringify({ biz: curBiz, date: today() })}'`)}<p class="mut">לחץ 🧾 ליד הזמנה להפקת מסמך. 🖨️ להדפסה או שמירה כ-PDF. חשוב: בדוק עם רואה החשבון אם נדרש מספר הקצאה או תוכנה מאושרת.</p></div>` : ''}
   ${sub === 'cmp' ? `<div class="card"><h2>רווח לפי שנה</h2>${all.length ? bars(all) : '<span class="mut">אין נתונים</span>'}</div>` : ''}`}`;
