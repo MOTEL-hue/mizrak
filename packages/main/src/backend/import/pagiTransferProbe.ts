@@ -77,7 +77,7 @@ async function readDialog(page: Page): Promise<TransferDetail[]> {
             (c.textContent ?? '').trim(),
           );
           const [iDate, iAmount, iName] = ['תאריך', 'סכום', 'שם'].map((h) => headers.indexOf(h));
-          if (!headers.includes('מהות ההעברה') || iDate < 0 || iAmount < 0 || iName < 0) continue;
+          if (!(headers.includes('מהות העברה') || headers.includes('מהות ההעברה')) || iDate < 0 || iAmount < 0 || iName < 0) continue;
           for (const tr of rowsEls.slice(1)) {
             const cells = Array.from(tr.querySelectorAll('td')).map((c) => (c.textContent ?? '').trim());
             if (cells.length > iName) out.push({ date: cells[iDate], amount: cells[iAmount], name: cells[iName] });
@@ -91,7 +91,7 @@ async function readDialog(page: Page): Promise<TransferDetail[]> {
     const details = rows
       .map((r) => ({
         date: isoFromIsraeli(r.date),
-        amount: Math.abs(Number(r.amount.replace(/,/g, ''))),
+        amount: Math.abs(Number(r.amount.replace(/[^\d.-]/g, ''))),
         name: r.name,
       }))
       .filter((r) => r.date && Number.isFinite(r.amount) && r.name);
